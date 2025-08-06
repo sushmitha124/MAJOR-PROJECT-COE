@@ -1,0 +1,7 @@
+streamlit
+google-generativeai
+diffusers
+transformers
+torch
+pillow
+pyngrok
