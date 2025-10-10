@@ -24,15 +24,19 @@ except Exception:
 # -----------------------------
 @st.cache_resource(show_spinner=False)
 def load_emotion_pipeline():
-    """Load emotion classification model."""
+    """Load emotion classification model safely without sending HF_TOKEN."""
     model_name = "j-hartmann/emotion-english-distilroberta-base"
     try:
-        # ✅ No token used here (public model)
-        emo_pipe = pipeline("text-classification", model=model_name, return_all_scores=True)
+        # Temporarily remove HF_TOKEN to avoid 401 errors for public models
+        old_token = os.environ.pop("HF_TOKEN", None)
+        emo_pipe = pipeline("text-classification", model=model_name, top_k=None)
+        if old_token:
+            os.environ["HF_TOKEN"] = old_token
     except Exception as e:
         st.error(f"Failed to load emotion model: {e}")
         raise
     return emo_pipe
+
 
 
 @st.cache_resource(show_spinner=False)
@@ -187,3 +191,4 @@ with col2:
 
 st.markdown("---")
 st.markdown("Built with ❤️ — Customize models & UI freely!")
+
