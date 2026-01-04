@@ -154,22 +154,9 @@ if "history" not in st.session_state:
 if "user_input" not in st.session_state:
     st.session_state.user_input = ""
 
-# --- NEW: Fixed Random Button Logic ---
-def get_random_scenario():
-    scenarios = [
-        "I finally fixed the leaky faucet and I'm grinning at my reflection.",
-        "Sitting on the bed holding an old sweater that smells like a lost friend.",
-        "Hearing a heavy thud from the attic while walking through my dark house.",
-        "Looking at a broken plate on the floor after a very long day.",
-        "Finding a huge bouquet of flowers on the porch with no name card.",
-        "Waiting for the bus on a cloudy Tuesday afternoon."
-    ]
-    # This directly updates the widget with the key 'user_input'
-    st.session_state.user_input = random.choice(scenarios)
-
 # 5. Sidebar for Controls
 st.sidebar.title("📖 Story Controls")
-st.sidebar.button("🎲 Get Random Scenario", on_click=get_random_scenario)
+
 
 if st.sidebar.button("🗑️ Reset Story"):
     st.session_state.history = []
@@ -232,4 +219,5 @@ for item in reversed(st.session_state.history):
             st.write(item['story'])
         with col2:
             st.image(item['image'], use_container_width=True)
+
 
