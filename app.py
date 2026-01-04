@@ -153,18 +153,18 @@ if "history" not in st.session_state:
 # 5. Sidebar for Controls & Scenarios
 st.sidebar.title("📖 Story Controls")
 
-def add_random_scenario():
-    scenarios = [
-        "I finally fixed the leaky faucet and I'm grinning at my reflection.",
-        "Sitting on the bed holding an old sweater that smells like a lost friend.",
-        "Hearing a heavy thud from the attic while walking through my dark house.",
-        "Looking at a broken plate on the floor after a very long day.",
-        "Finding a huge bouquet of flowers on the porch with no name card."
-    ]
-    st.session_state.current_prompt = random.choice(scenarios)
+# def add_random_scenario():
+#     scenarios = [
+#         "I finally fixed the leaky faucet and I'm grinning at my reflection.",
+#         "Sitting on the bed holding an old sweater that smells like a lost friend.",
+#         "Hearing a heavy thud from the attic while walking through my dark house.",
+#         "Looking at a broken plate on the floor after a very long day.",
+#         "Finding a huge bouquet of flowers on the porch with no name card."
+#     ]
+#     st.session_state.current_prompt = random.choice(scenarios)
 
-if st.sidebar.button("🎲 Get Random Scenario"):
-    add_random_scenario()
+# if st.sidebar.button("🎲 Get Random Scenario"):
+#     add_random_scenario()
 
 if st.sidebar.button("🗑️ Reset Story"):
     st.session_state.history = []
@@ -226,3 +226,4 @@ for item in reversed(st.session_state.history):
             st.write(item['story'])
         with col2:
             st.image(item['image'], use_container_width=True)
+
