@@ -1,33 +1,106 @@
 import streamlit as st
-from PIL import Image
-from emotion_detector import detect_emotion
-from story_generator import continue_story
-from image_prompt_generator import generate_image_prompt
-from image_generator import generate_emotion_image  
+import requests
+import textwrap
+import random
+from transformers import pipeline
+from urllib.parse import quote
 
-st.set_page_config(page_title="Emotion-Aware Story Generator", layout="centered")
-st.title("🎭 Emotion-Aware AI Story Assistant")
+# --- 1. PAGE CONFIG & MODELS ---
+st.set_page_config(page_title="Emotion Story Engine", page_icon="📖", layout="wide")
 
-scene_input = st.text_area("Enter the opening scene:", height=150)
+@st.cache_resource
+def load_models():
+    # Loading the local emotion engine
+    classifier = pipeline(
+        "text-classification", 
+        model="j-hartmann/emotion-english-distilroberta-base", 
+        top_k=1
+    )
+    return classifier
 
-if st.button("Generate"):
-    if not scene_input.strip():
-        st.error("Please enter some text to analyze.")
+emotion_classifier = load_models()
+
+# --- 2. STYLE MAPPING (Anti-Distortion) ---
+STYLE_MAP = {
+    "joy": "clear happy face, authentic smile, sharp eyes, natural sunlight, candid photo, symmetrical features, realistic skin",
+    "sadness": "clear face, quiet expression, soft window light, natural skin texture, unposed documentary photo, sharp focus on eyes",
+    "fear": "clear focused face, wide eyes, sharp facial features, low indoor lighting, realistic human anatomy, no distortion",
+    "anger": "sharp clear face, intense gaze, realistic skin, indoor lighting, unpolished candid photo, symmetrical face",
+    "surprise": "clear shocked face, sharp focus, eyebrows raised, authentic human reaction, natural daylight",
+    "neutral": "clear normal face, unposed headshot, natural daylight, ordinary person, sharp details, realistic skin tone"
+}
+
+# --- 3. SESSION STATE (To keep story history) ---
+if "story_history" not in st.session_state:
+    st.session_state.story_history = []
+
+# --- 4. SIDEBAR SCENARIOS ---
+st.sidebar.title("Test Scenarios")
+test_scenarios = {
+    "Joy": "I finally fixed the leaky faucet and I'm grinning at my reflection.",
+    "Sadness": "Sitting on the bed holding an old sweater that smells like a lost friend.",
+    "Fear": "Hearing a heavy thud from the attic while walking through my dark house.",
+    "Anger": "Looking at a broken plate on the floor after a very long day.",
+    "Surprise": "Finding a huge bouquet of flowers on the porch with no name card.",
+    "Neutral": "Waiting at the bus stop on a cloudy Tuesday afternoon."
+}
+
+if st.sidebar.button("🎲 Random Scenario"):
+    st.session_state.random_input = random.choice(list(test_scenarios.values()))
+else:
+    st.session_state.random_input = ""
+
+# --- 5. MAIN UI ---
+st.title("📖 Real-Life Emotion Story Engine")
+st.write("Enter a simple prompt to generate a meaningful story paragraph and a realistic photo.")
+
+user_input = st.text_area("What happens next?", value=st.session_state.random_input, height=100)
+
+col1, col2 = st.columns([1, 1])
+
+if st.button("Generate Scene"):
+    if user_input:
+        with st.spinner("Analyzing emotion and writing story..."):
+            # A. Detect Emotion
+            emo_res = emotion_classifier(user_input)[0][0]
+            emotion = emo_res['label']
+            
+            # B. Generate Story Paragraph
+            instruction = (
+                f"Write one meaningful story paragraph using simple words. "
+                f"Continue this prompt: '{user_input}'. Tone: {emotion}. "
+                f"Stay grounded in real daily life."
+            )
+            text_url = f"https://text.pollinations.ai/{quote(instruction)}?model=openai"
+            story_ext = requests.get(text_url).text.strip()
+            
+            # C. Generate Image
+            tech_style = STYLE_MAP.get(emotion, "clear face, realistic photography")
+            image_prompt = (
+                f"A high-quality, realistic photo of a normal human: {user_input}. "
+                f"{tech_style}, clear eyes, symmetrical facial structure, natural lighting, "
+                f"no distortions, 8k."
+            )
+            image_url = f"https://image.pollinations.ai/prompt/{quote(image_prompt)}?width=1024&height=768&model=flux&nologo=true"
+            
+            # Save to session
+            st.session_state.story_history.append({"input": user_input, "story": story_ext, "image": image_url, "mood": emotion})
+            
     else:
-        with st.spinner("Detecting emotion..."):
-            emotion = detect_emotion(scene_input)
-            st.success(f"Detected Emotion: **{emotion.capitalize()}**")
+        st.warning("Please enter a prompt first!")
 
-        with st.spinner("Generating continuation..."):
-            continuation = continue_story(scene_input, emotion)
-            st.subheader("📘 Continued Story")
-            st.write(continuation)
+# --- 6. DISPLAY RESULTS ---
+for item in reversed(st.session_state.story_history):
+    with st.container():
+        st.markdown(f"### 🎭 Mood: {item['mood'].upper()}")
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            st.write(f"**{item['input']}**")
+            st.write(item['story'])
+        with c2:
+            st.image(item['image'], use_container_width=True)
+        st.divider()
 
-        with st.spinner("Generating visual prompt..."):
-            img_prompt = generate_image_prompt(scene_input, emotion)
-            st.text("Prompt used for image generation:")
-            st.write(img_prompt)
-
-        with st.spinner("Generating image..."):
-            image_path = generate_emotion_image(scene_input,emotion)
-            st.image(image_path, caption=f"Generated image for '{emotion}'", use_container_width=True)
+if st.sidebar.button("Clear Story History"):
+    st.session_state.story_history = []
+    st.rerun()
