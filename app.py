@@ -232,3 +232,4 @@ for item in reversed(st.session_state.history):
             st.write(item['story'])
         with col2:
             st.image(item['image'], use_container_width=True)
+
