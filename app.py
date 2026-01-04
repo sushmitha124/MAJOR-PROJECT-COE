@@ -116,8 +116,6 @@
 
 
 
-
-
 import streamlit as st
 import requests
 import random
@@ -148,27 +146,40 @@ STYLE_MAP = {
     "neutral": "clear normal face, unposed headshot, natural daylight, ordinary person, sharp details, realistic skin tone, clear eyes"
 }
 
-# 4. Initialize Session State
+# 4. Initialize Session State for History
 if "history" not in st.session_state:
     st.session_state.history = []
-if "user_input" not in st.session_state:
-    st.session_state.user_input = ""
 
-# 5. Sidebar for Controls
+# 5. Sidebar for Controls & Scenarios
 st.sidebar.title("📖 Story Controls")
 
+def add_random_scenario():
+    scenarios = [
+        "I finally fixed the leaky faucet and I'm grinning at my reflection.",
+        "Sitting on the bed holding an old sweater that smells like a lost friend.",
+        "Hearing a heavy thud from the attic while walking through my dark house.",
+        "Looking at a broken plate on the floor after a very long day.",
+        "Finding a huge bouquet of flowers on the porch with no name card."
+    ]
+    st.session_state.current_prompt = random.choice(scenarios)
+
+if st.sidebar.button("🎲 Get Random Scenario"):
+    add_random_scenario()
 
 if st.sidebar.button("🗑️ Reset Story"):
     st.session_state.history = []
-    st.session_state.user_input = ""
+    st.session_state.current_prompt = ""
     st.rerun()
 
 # 6. Main Interface
 st.title("Emotion-Aware Story Engine")
 st.write("Craft realistic daily-life stories with clear, human-like visuals.")
 
-# IMPORTANT: value is linked to st.session_state.user_input via the 'key'
-prompt = st.text_area("What happens next?", key="user_input", height=100)
+# UI Logic for input
+if "current_prompt" not in st.session_state:
+    st.session_state.current_prompt = ""
+
+prompt = st.text_area("What happens next?", value=st.session_state.current_prompt, height=100)
 
 if st.button("Generate Realistic Scene"):
     if prompt:
@@ -177,20 +188,16 @@ if st.button("Generate Realistic Scene"):
             emo_res = emotion_classifier(prompt)[0][0]
             emotion = emo_res['label']
 
-            # B. Generate Story Paragraph (Simple & Meaningful)
+            # B. Generate Story Paragraph
             instruction = (
                 f"Continue this story in a clear, meaningful paragraph using simple, "
                 f"easy-to-understand words. Make it feel like real daily life. "
                 f"The mood is {emotion}. Original thought: {prompt}"
             )
             text_api_url = f"https://text.pollinations.ai/{quote(instruction)}?model=openai"
-            
-            try:
-                story_ext = requests.get(text_api_url).text.strip()
-            except:
-                story_ext = "The moment passed quietly as the day moved forward."
+            story_ext = requests.get(text_api_url).text.strip()
 
-            # C. Generate Image (Using Flux for clear faces)
+            # C. Generate Image
             tech_style = STYLE_MAP.get(emotion, "clear face, realistic photography")
             image_prompt = (
                 f"A high-quality, realistic photo of a normal human being: {prompt}. "
@@ -207,7 +214,7 @@ if st.button("Generate Realistic Scene"):
                 "image": image_url
             })
     else:
-        st.error("⚠️ Please enter a prompt or click the 'Random Scenario' button first!")
+        st.warning("Please enter a prompt first!")
 
 # 7. Display Results (Newest First)
 for item in reversed(st.session_state.history):
@@ -219,5 +226,3 @@ for item in reversed(st.session_state.history):
             st.write(item['story'])
         with col2:
             st.image(item['image'], use_container_width=True)
-
-
