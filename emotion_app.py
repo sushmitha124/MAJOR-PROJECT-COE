@@ -359,7 +359,7 @@ def load_model():
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
         top_k=1,
-        device=-1
+        device=-1,
         token=HF_TOKEN 
     )
 
