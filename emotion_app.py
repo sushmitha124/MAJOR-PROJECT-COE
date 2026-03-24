@@ -388,7 +388,7 @@ def generate_image(prompt, emotion):
     return Image.open(io.BytesIO(response.content))
 
 # FUNCTIONS
-def detect_emotion(clf, text):
+def detect_emotion(text):
     return clf(text)[0][0]["label"].lower()
 
 def generate_story(prompt, emotion):
