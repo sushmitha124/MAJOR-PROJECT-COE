@@ -405,10 +405,10 @@ if st.button("Generate"):
         st.warning("Enter something")
         st.stop()
 
-    clf = load_model()
+
 
     # Emotion
-    emotion = detect_emotion(clf, user_prompt)
+    emotion = detect_emotion(user_prompt)
     emoji = EMOTION_STYLES.get(emotion, {}).get("emoji", "🌫️")
 
     st.subheader(f"{emoji} Emotion: {emotion.upper()}")
