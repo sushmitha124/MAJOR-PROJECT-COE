@@ -320,53 +320,41 @@
 import streamlit as st
 import torch
 from transformers import pipeline
+import requests
+from PIL import Image
+import io
 import time
 
-# PAGE CONFIG
-st.set_page_config(
-    page_title="Emotion Story Generator",
-    page_icon="🎭",
-    layout="centered"
-)
+# CONFIG
+st.set_page_config(page_title="Emotion Story Generator", page_icon="🎭")
 
-# ─────────────────────────────
-# CSS (same as yours)
-# ─────────────────────────────
-st.markdown("""<style>
-body {background-color:#0f0f0f;color:#f0ece3;}
-</style>""", unsafe_allow_html=True)
+HF_TOKEN = st.secrets["HF_TOKEN"]
 
-# ─────────────────────────────
 # EMOTION STYLES
-# ─────────────────────────────
 EMOTION_STYLES = {
-    "sadness":  {"bg": "#1e2a3a", "color": "#7ab3e0", "emoji": "💙"},
-    "joy":      {"bg": "#2a2a1a", "color": "#f0d060", "emoji": "✨"},
-    "fear":     {"bg": "#1f1a2e", "color": "#b388e8", "emoji": "🌑"},
-    "anger":    {"bg": "#2e1a1a", "color": "#e87070", "emoji": "🔥"},
-    "disgust":  {"bg": "#1a2e1a", "color": "#80c980", "emoji": "🌿"},
-    "neutral":  {"bg": "#1e1e1e", "color": "#aaaaaa", "emoji": "🌫️"},
-    "surprise": {"bg": "#2a1e2e", "color": "#f0a0e0", "emoji": "⚡"},
+    "sadness":  {"emoji": "💙"},
+    "joy":      {"emoji": "✨"},
+    "fear":     {"emoji": "🌑"},
+    "anger":    {"emoji": "🔥"},
+    "disgust":  {"emoji": "🌿"},
+    "neutral":  {"emoji": "🌫️"},
+    "surprise": {"emoji": "⚡"},
 }
 
-# ─────────────────────────────
-# STORY TEMPLATES
-# ─────────────────────────────
+# STORY
 STORY_TEMPLATES = {
     "sadness": "{prompt} She felt a deep heaviness in her heart...",
     "joy": "{prompt} A warm smile spread across her face...",
     "fear": "{prompt} Her heart started beating faster...",
     "anger": "{prompt} Her emotions burned with intensity...",
-    "disgust": "{prompt} She felt deeply uncomfortable...",
+    "disgust": "{prompt} She felt uncomfortable...",
     "surprise": "{prompt} She stopped completely...",
-    "neutral": "{prompt} She paused for a moment..."
+    "neutral": "{prompt} She paused quietly..."
 }
 
-# ─────────────────────────────
 # MODEL
-# ─────────────────────────────
 @st.cache_resource
-def load_emotion_model():
+def load_model():
     return pipeline(
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
@@ -374,18 +362,28 @@ def load_emotion_model():
         device=-1
     )
 
-# ─────────────────────────────
+# IMAGE API
+def generate_image(prompt, emotion):
+    API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+    full_prompt = f"{prompt}, {emotion} mood, realistic photo"
+
+    response = requests.post(API_URL, headers=headers, json={"inputs": full_prompt})
+
+    if response.status_code != 200:
+        return None
+
+    return Image.open(io.BytesIO(response.content))
+
 # FUNCTIONS
-# ─────────────────────────────
-def detect_emotion(classifier, text):
-    return classifier(text)[0][0]["label"].lower()
+def detect_emotion(clf, text):
+    return clf(text)[0][0]["label"].lower()
 
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
-# ─────────────────────────────
 # UI
-# ─────────────────────────────
 st.title("🎭 Emotion Story Generator")
 
 user_prompt = st.text_area("Enter your prompt")
@@ -393,19 +391,28 @@ user_prompt = st.text_area("Enter your prompt")
 if st.button("Generate"):
 
     if not user_prompt.strip():
-        st.warning("Enter a prompt")
+        st.warning("Enter something")
         st.stop()
 
-    clf = load_emotion_model()
+    clf = load_model()
 
+    # Emotion
     emotion = detect_emotion(clf, user_prompt)
+    emoji = EMOTION_STYLES.get(emotion, {}).get("emoji", "🌫️")
 
-    style = EMOTION_STYLES.get(emotion, EMOTION_STYLES["neutral"])
+    st.subheader(f"{emoji} Emotion: {emotion.upper()}")
 
-    st.markdown(f"### {style['emoji']} {emotion.upper()}")
-
+    # Story
     story = generate_story(user_prompt, emotion)
     st.write(story)
 
-    # ⚠️ IMAGE DISABLED
-    st.warning("⚠️ Image generation disabled (not supported on Streamlit Cloud)")
+    # Image
+    with st.spinner("Generating image..."):
+        image = generate_image(user_prompt, emotion)
+
+    if image:
+        st.image(image, caption=f"{emotion} mood")
+    else:
+        st.error("Image generation failed. Try again.")
+
+    st.success("Done!")
