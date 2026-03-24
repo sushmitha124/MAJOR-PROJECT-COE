@@ -2,9 +2,11 @@ import streamlit as st
 import requests
 from transformers import pipeline
 from urllib.parse import quote
+from PIL import Image
+from io import BytesIO
 import os
 
-# Fix HF cache (important for cloud)
+# Fix HF cache
 os.environ["HF_HOME"] = "/tmp/huggingface"
 
 # ─────────────────────────────────────────────
@@ -13,13 +15,13 @@ os.environ["HF_HOME"] = "/tmp/huggingface"
 st.set_page_config(page_title="Emotion Story Engine", page_icon="📖", layout="wide")
 
 # ─────────────────────────────────────────────
-# LOAD MODEL
+# LOAD EMOTION MODEL (LIGHTWEIGHT)
 # ─────────────────────────────────────────────
 @st.cache_resource
 def load_emotion_model():
     return pipeline(
         "text-classification",
-        model="bhadresh-savani/distilbert-base-uncased-emotion",  # lighter model
+        model="bhadresh-savani/distilbert-base-uncased-emotion",
         top_k=1,
         device=-1
     )
@@ -30,12 +32,12 @@ emotion_classifier = load_emotion_model()
 # STYLE MAP
 # ─────────────────────────────────────────────
 STYLE_MAP = {
-    "joy": "happy face, natural smile, sunlight, realistic skin, DSLR photo",
-    "sadness": "sad face, soft light, emotional expression, realistic human",
-    "fear": "wide eyes, tense face, low light, realistic human",
-    "anger": "angry expression, sharp features, realistic skin",
-    "surprise": "shocked face, raised eyebrows, realistic reaction",
-    "neutral": "normal face, natural light, realistic portrait"
+    "joy": "happy face, natural smile, sunlight, DSLR photo",
+    "sadness": "sad face, soft light, emotional expression",
+    "fear": "wide eyes, tense face, dark lighting",
+    "anger": "angry expression, sharp features",
+    "surprise": "shocked face, raised eyebrows",
+    "neutral": "normal face, natural daylight"
 }
 
 # ─────────────────────────────────────────────
@@ -44,99 +46,73 @@ STYLE_MAP = {
 if "history" not in st.session_state:
     st.session_state.history = []
 
-if "current_prompt" not in st.session_state:
-    st.session_state.current_prompt = ""
+# ─────────────────────────────────────────────
+# FUNCTIONS
+# ─────────────────────────────────────────────
+def generate_image(prompt, emotion):
+    API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+
+    headers = {
+        "Authorization": f"Bearer {st.secrets['HF_TOKEN']}"
+    }
+
+    payload = {
+        "inputs": f"{prompt}, {emotion}, realistic human photo",
+        "options": {"wait_for_model": True}
+    }
+
+    response = requests.post(API_URL, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        return None
+
+    return Image.open(BytesIO(response.content))
+
 
 # ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-st.sidebar.title("📖 Controls")
-
-if st.sidebar.button("🗑️ Reset Story"):
-    st.session_state.history = []
-    st.session_state.current_prompt = ""
-    st.rerun()
-
-# ─────────────────────────────────────────────
-# MAIN UI
+# UI
 # ─────────────────────────────────────────────
 st.title("Emotion-Aware AI Story & Visual Generator")
 
-prompt = st.text_area("Enter your prompt", value=st.session_state.current_prompt, height=100)
+prompt = st.text_area("Enter your prompt")
 
-# ─────────────────────────────────────────────
-# GENERATION
-# ─────────────────────────────────────────────
 if st.button("Generate Story and Visual"):
 
     if not prompt.strip():
-        st.warning("Please enter a prompt!")
+        st.warning("Please enter a prompt")
         st.stop()
 
-    with st.spinner("Analyzing emotion..."):
-        try:
-            emo_res = emotion_classifier(prompt)[0][0]
-            emotion = emo_res['label']
-            confidence = round(emo_res['score'], 2)
-        except:
-            st.error("Emotion detection failed")
-            st.stop()
+    # Emotion
+    with st.spinner("Detecting emotion..."):
+        emo_res = emotion_classifier(prompt)[0][0]
+        emotion = emo_res['label']
+        confidence = round(emo_res['score'], 2)
 
-    st.success(f"Detected Emotion: {emotion.upper()} (confidence: {confidence})")
+    st.success(f"Emotion: {emotion.upper()} ({confidence})")
 
-    # ── STORY GENERATION ──
-    with st.spinner("Generating story..."):
-        try:
-            instruction = (
-                f"Write a simple, realistic short paragraph. Mood: {emotion}. "
-                f"Prompt: {prompt}"
-            )
+    # Story (simple)
+    story = f"{prompt} The moment carried a strong sense of {emotion}, shaping everything around it."
 
-            text_api_url = f"https://text.pollinations.ai/{quote(instruction)}?model=openai"
-            story_ext = requests.get(text_api_url, timeout=20).text.strip()
-        except:
-            story_ext = "Story generation failed. Please try again."
+    st.subheader("📖 Story")
+    st.write(story)
 
-    # ── IMAGE GENERATION ──
-    with st.spinner("Generating image... (10–20 sec)"):
-        try:
-            style = STYLE_MAP.get(emotion, "realistic photo")
+    # Image
+    with st.spinner("Generating image (10–20 sec)..."):
+        image = generate_image(prompt, emotion)
 
-            image_prompt = (
-                f"realistic human photo, {prompt}, {style}, "
-                f"natural lighting, sharp face, no distortion, DSLR quality"
-            )
+    if image:
+        st.subheader("🖼️ Image")
+        st.image(image, use_column_width=True)
+    else:
+        st.error("Image generation failed. Try again.")
 
-            image_url = (
-                f"https://image.pollinations.ai/prompt/{quote(image_prompt)}"
-                f"?width=1024&height=768&model=flux&nologo=true"
-            )
-        except:
-            image_url = None
-
-    # SAVE
-    st.session_state.history.append({
-        "mood": emotion,
-        "input": prompt,
-        "story": story_ext,
-        "image": image_url
-    })
+    # Save history
+    st.session_state.history.append((prompt, emotion))
 
 # ─────────────────────────────────────────────
-# DISPLAY RESULTS
+# HISTORY
 # ─────────────────────────────────────────────
-for item in reversed(st.session_state.history):
-    with st.container(border=True):
-        st.subheader(f"🎭 Mood: {item['mood'].upper()}")
-
-        col1, col2 = st.columns([2, 1])
-
-        with col1:
-            st.write(f"**Prompt:** {item['input']}")
-            st.write(item['story'])
-
-        with col2:
-            if item["image"]:
-                st.image(item["image"], use_container_width=True)
-            else:
-                st.warning("Image not available")
+if st.session_state.history:
+    st.subheader("History")
+    for p, e in reversed(st.session_state.history):
+        st.write(f"{p} → {e}")
