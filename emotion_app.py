@@ -328,7 +328,7 @@ import time
 # CONFIG
 st.set_page_config(page_title="Emotion Story Generator", page_icon="🎭")
 
-HF_TOKEN = st.secrets["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"]
+HF_TOKEN = st.secrets["HF_TOKEN"]
 
 # EMOTION STYLES
 EMOTION_STYLES = {
