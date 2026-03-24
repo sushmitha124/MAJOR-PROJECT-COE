@@ -353,15 +353,25 @@ STORY_TEMPLATES = {
 }
 
 # MODEL
-@st.cache_resource
-def load_model():
-    return pipeline(
-        "text-classification",
-        model="j-hartmann/emotion-english-distilroberta-base",
-        top_k=1,
-        device=-1,
-        token=HF_TOKEN 
-    )
+def detect_emotion(text):
+    API_URL = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
+
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}"
+    }
+
+    response = requests.post(API_URL, headers=headers, json={"inputs": text})
+
+    if response.status_code != 200:
+        st.error("Emotion API failed")
+        return "neutral"
+
+    result = response.json()
+
+    try:
+        return result[0][0]["label"].lower()
+    except:
+        return "neutral"
 
 # IMAGE API
 def generate_image(prompt, emotion):
