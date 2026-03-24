@@ -316,10 +316,7 @@
 #     st.success("✦ Done! Try a new prompt above.")
 
 
-
 import streamlit as st
-import torch
-from transformers import pipeline
 import requests
 from PIL import Image
 import io
@@ -352,7 +349,7 @@ STORY_TEMPLATES = {
     "neutral": "{prompt} She paused quietly..."
 }
 
-# MODEL
+# ✅ EMOTION API (ONLY ONE FUNCTION)
 def detect_emotion(text):
     API_URL = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
 
@@ -363,7 +360,7 @@ def detect_emotion(text):
     response = requests.post(API_URL, headers=headers, json={"inputs": text})
 
     if response.status_code != 200:
-        st.error("Emotion API failed")
+        st.warning("Emotion API failed, using neutral")
         return "neutral"
 
     result = response.json()
@@ -376,21 +373,32 @@ def detect_emotion(text):
 # IMAGE API
 def generate_image(prompt, emotion):
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-    full_prompt = f"{prompt}, {emotion} mood, realistic photo"
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}"
+    }
 
-    response = requests.post(API_URL, headers=headers, json={"inputs": full_prompt})
+    full_prompt = f"{prompt}, {emotion} emotion, ultra realistic, DSLR photo"
 
-    if response.status_code != 200:
+    try:
+        response = requests.post(API_URL, headers=headers, json={"inputs": full_prompt})
+
+        if response.status_code == 200:
+            return Image.open(io.BytesIO(response.content))
+
+        elif response.status_code == 503:
+            st.warning("Model loading... try again in few seconds")
+            return None
+
+        else:
+            st.error(f"Image API Error: {response.status_code}")
+            return None
+
+    except:
+        st.error("Image generation failed")
         return None
 
-    return Image.open(io.BytesIO(response.content))
-
-# FUNCTIONS
-def detect_emotion(text):
-    return clf(text)[0][0]["label"].lower()
-
+# STORY FUNCTION
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
@@ -405,16 +413,18 @@ if st.button("Generate"):
         st.warning("Enter something")
         st.stop()
 
-
-
     # Emotion
-    emotion = detect_emotion(user_prompt)
-    emoji = EMOTION_STYLES.get(emotion, {}).get("emoji", "🌫️")
+    with st.spinner("Analyzing emotion..."):
+        emotion = detect_emotion(user_prompt)
 
+    emoji = EMOTION_STYLES.get(emotion, {}).get("emoji", "🌫️")
     st.subheader(f"{emoji} Emotion: {emotion.upper()}")
 
     # Story
-    story = generate_story(user_prompt, emotion)
+    with st.spinner("Generating story..."):
+        story = generate_story(user_prompt, emotion)
+        time.sleep(0.5)
+
     st.write(story)
 
     # Image
@@ -424,6 +434,6 @@ if st.button("Generate"):
     if image:
         st.image(image, caption=f"{emotion} mood")
     else:
-        st.error("Image generation failed. Try again.")
+        st.warning("Image not generated. Try again.")
 
     st.success("Done!")
