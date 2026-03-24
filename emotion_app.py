@@ -1,9 +1,14 @@
 import streamlit as st
 import torch
 from transformers import pipeline
-from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+import requests
 from PIL import Image
+from io import BytesIO
 import time
+import os
+
+# Fix HuggingFace cache (important for Streamlit Cloud)
+os.environ["HF_HOME"] = "/tmp/huggingface"
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -14,383 +19,113 @@ st.set_page_config(
     layout="centered"
 )
 
-# ─────────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'DM Sans', sans-serif;
-        background-color: #0f0f0f;
-        color: #f0ece3;
-    }
-
-    .main {
-        background-color: #0f0f0f;
-    }
-
-    h1, h2, h3 {
-        font-family: 'Playfair Display', serif !important;
-        color: #f0ece3 !important;
-    }
-
-    .stTextArea textarea {
-        background-color: #1a1a1a !important;
-        color: #f0ece3 !important;
-        border: 1px solid #333 !important;
-        border-radius: 8px !important;
-        font-family: 'DM Sans', sans-serif !important;
-        font-size: 15px !important;
-    }
-
-    .stButton > button {
-        background: linear-gradient(135deg, #c9a96e, #a0784a) !important;
-        color: #0f0f0f !important;
-        font-family: 'DM Sans', sans-serif !important;
-        font-weight: 600 !important;
-        font-size: 15px !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.6rem 2rem !important;
-        width: 100% !important;
-        transition: opacity 0.2s ease !important;
-    }
-
-    .stButton > button:hover {
-        opacity: 0.85 !important;
-    }
-
-    .emotion-badge {
-        display: inline-block;
-        padding: 6px 20px;
-        border-radius: 30px;
-        font-size: 14px;
-        font-weight: 600;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        margin-bottom: 1rem;
-    }
-
-    .story-box {
-        background: #1a1a1a;
-        border-left: 3px solid #c9a96e;
-        border-radius: 8px;
-        padding: 1.5rem 1.8rem;
-        font-family: 'Playfair Display', serif;
-        font-size: 17px;
-        line-height: 1.9;
-        color: #e8e0d0;
-        margin: 1rem 0;
-    }
-
-    .section-label {
-        font-size: 11px;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        color: #c9a96e;
-        margin-bottom: 0.4rem;
-        font-weight: 500;
-    }
-
-    .divider {
-        border: none;
-        border-top: 1px solid #2a2a2a;
-        margin: 2rem 0;
-    }
-
-    /* hide streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
+st.title("🎭 Emotion Story Generator")
+st.write("Type anything — get emotion, story, and image ✨")
 
 # ─────────────────────────────────────────────
-# EMOTION COLOR MAP
+# LOAD EMOTION MODEL (LIGHTWEIGHT)
 # ─────────────────────────────────────────────
-EMOTION_STYLES = {
-    "sadness":  {"bg": "#1e2a3a", "color": "#7ab3e0", "emoji": "💙"},
-    "joy":      {"bg": "#2a2a1a", "color": "#f0d060", "emoji": "✨"},
-    "fear":     {"bg": "#1f1a2e", "color": "#b388e8", "emoji": "🌑"},
-    "anger":    {"bg": "#2e1a1a", "color": "#e87070", "emoji": "🔥"},
-    "disgust":  {"bg": "#1a2e1a", "color": "#80c980", "emoji": "🌿"},
-    "neutral":  {"bg": "#1e1e1e", "color": "#aaaaaa", "emoji": "🌫️"},
-    "surprise": {"bg": "#2a1e2e", "color": "#f0a0e0", "emoji": "⚡"},
-}
-
+@st.cache_resource
+def load_emotion_model():
+    return pipeline(
+        "text-classification",
+        model="bhadresh-savani/distilbert-base-uncased-emotion",
+        top_k=1,
+        device=-1
+    )
 
 # ─────────────────────────────────────────────
 # STORY TEMPLATES
 # ─────────────────────────────────────────────
 STORY_TEMPLATES = {
-    "sadness": (
-        "{prompt} She felt a deep heaviness in her heart as memories slowly filled her mind. "
-        "The silence around her made everything more painful, like a fog that refused to lift. "
-        "Taking a long, slow breath, she closed her eyes and tried to accept the moment — "
-        "not to fight it, but to let it pass through her like rain."
-    ),
-    "joy": (
-        "{prompt} A warm smile spread across her face as happiness filled every corner of the moment. "
-        "Everything around her felt brighter, lighter, as if the world had been turned up just a little. "
-        "She held onto that feeling with both hands, knowing it was rare and worth savoring fully."
-    ),
-    "fear": (
-        "{prompt} Her heart started beating faster as a cold sense of fear crept slowly up her spine. "
-        "She looked around, unsure of what lay ahead, every shadow feeling like a threat. "
-        "Then, gathering every last piece of courage she had, she took one small step forward."
-    ),
-    "anger": (
-        "{prompt} Her emotions burned with a fierce intensity as frustration took over her thoughts entirely. "
-        "She struggled to stay calm, trying hard not to let the fire inside her spill over. "
-        "Slowly, steadily, she pulled herself back — choosing clarity over the heat of the moment."
-    ),
-    "disgust": (
-        "{prompt} She felt deeply uncomfortable, unsettled by what she had just witnessed or heard. "
-        "It was difficult even to process — her mind recoiling from the weight of the moment. "
-        "She stepped away, quietly, quickly, letting clean air slowly replace what had been there."
-    ),
-    "surprise": (
-        "{prompt} She stopped completely — the moment catching her entirely off guard and breathless. "
-        "Her mind raced to catch up with what her eyes had just seen unfold before her. "
-        "After a long pause, a slow smile of disbelief crept across her face. She hadn't expected this."
-    ),
-    "neutral": (
-        "{prompt} She paused for a moment, quietly observing everything that surrounded her in the space. "
-        "The situation felt ordinary on the surface, yet held a quiet meaning she couldn't quite name. "
-        "She continued forward with a calm and settled mind, neither rushed nor reluctant."
-    ),
+    "sadness": "{prompt} She felt a deep heaviness in her heart as memories returned slowly.",
+    "joy": "{prompt} A warm smile spread across her face as happiness filled the moment.",
+    "fear": "{prompt} Her heart raced as fear quietly crept into her thoughts.",
+    "anger": "{prompt} Her emotions burned intensely as frustration took control.",
+    "disgust": "{prompt} She felt uncomfortable, stepping away from the situation.",
+    "surprise": "{prompt} She froze, caught completely off guard by what happened.",
+    "neutral": "{prompt} She quietly observed everything with a calm and steady mind."
 }
 
-
 # ─────────────────────────────────────────────
-# CACHED MODEL LOADERS
+# FUNCTIONS
 # ─────────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
-def load_emotion_model():
-    return pipeline(
-        "text-classification",
-        model="j-hartmann/emotion-english-distilroberta-base",
-        top_k=1,
-        device=0 if torch.cuda.is_available() else -1
-    )
-
-@st.cache_resource(show_spinner=False)
-def load_sd_pipeline():
-    model_id = "SG161222/Realistic_Vision_V5.1_noVAE"
-    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    pipe = StableDiffusionPipeline.from_pretrained(
-        model_id,
-        torch_dtype=dtype,
-        safety_checker=None,
-        requires_safety_checker=False
-    )
-    # DPM++ scheduler = much better face details than default
-    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        pipe.scheduler.config,
-        algorithm_type="dpmsolver++",
-        use_karras_sigmas=True
-    )
-    pipe = pipe.to(device)
-    pipe.enable_attention_slicing()
-    return pipe
-
-
-# ─────────────────────────────────────────────
-# CORE FUNCTIONS
-# ─────────────────────────────────────────────
-def detect_emotion(classifier, text: str) -> str:
+def detect_emotion(classifier, text):
     result = classifier(text)
     return result[0][0]["label"].lower()
 
-def generate_story(prompt: str, emotion: str) -> str:
+def generate_story(prompt, emotion):
     template = STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"])
-    return template.format(prompt=prompt.strip())
+    return template.format(prompt=prompt)
 
-def extract_scene_keywords(prompt: str) -> str:
-    """Extract key visual elements from the user prompt for image generation."""
-    # Remove filler words, keep visual nouns/verbs
-    import re
-    prompt = prompt.strip().rstrip(".")
-    # Capitalize first letter for cleaner prompt
-    return prompt[:200]  # limit length
+def generate_image(prompt, emotion):
+    API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
 
-def generate_image(sd_pipe, prompt: str, emotion: str) -> Image.Image:
-
-    scene = extract_scene_keywords(prompt)
-
-    # Emotion-specific lighting and mood
-    emotion_visuals = {
-        "sadness":  "overcast soft light, muted cool tones, melancholic atmosphere",
-        "joy":      "warm golden hour light, bright cheerful atmosphere, vibrant colors",
-        "fear":     "dim light, long shadows, tense dark atmosphere",
-        "anger":    "harsh contrast light, warm red tones, intense atmosphere",
-        "disgust":  "flat harsh light, uncomfortable atmosphere, cold tones",
-        "surprise": "bright dramatic light, dynamic atmosphere, sharp contrast",
-        "neutral":  "soft natural daylight, calm balanced atmosphere",
+    headers = {
+        "Authorization": f"Bearer {st.secrets['HF_TOKEN']}"
     }
-    mood_lighting = emotion_visuals.get(emotion, emotion_visuals["neutral"])
 
-    image_prompt = (
-        f"RAW photo, {scene}, "               # ← user prompt is PRIMARY
-        f"{mood_lighting}, "                   # ← emotion sets the mood/lighting
-        "photorealistic, real life scene, "
-        "natural human faces, clear facial features, "
-        "normal human appearance, healthy skin, "
-        "sharp focus, DSLR photography, "
-        "85mm lens, natural lighting, "
-        "(best quality, masterpiece:1.2), highres"
+    full_prompt = f"{prompt}, {emotion} mood, photorealistic, high quality, realistic human"
+
+    response = requests.post(
+        API_URL,
+        headers=headers,
+        json={"inputs": full_prompt}
     )
 
-    negative_prompt = (
-        # Scene accuracy
-        "unrelated scene, random background, "
-        # Face fixes
-        "ugly face, deformed face, disfigured, bad face, "
-        "asymmetrical face, deformed eyes, deformed iris, "
-        "deformed pupils, crossed eyes, zombie, demon, devil, "
-        "monster, scary, horror, pale dead skin, "
-        # Body fixes
-        "extra fingers, mutated hands, bad anatomy, "
-        "extra limbs, mutation, mutilated, "
-        # Quality fixes
-        "blurry, low quality, worst quality, jpeg artifacts, "
-        "watermark, text, signature, "
-        # Style fixes
-        "cartoon, anime, illustration, painting, "
-        "3d render, cgi, plastic skin, airbrushed"
-    )
+    if response.status_code != 200:
+        return None
 
-    result = sd_pipe(
-        image_prompt,
-        negative_prompt=negative_prompt,
-        guidance_scale=7.0,       # higher = follows prompt more strictly
-        num_inference_steps=50,
-        height=512,
-        width=512,
-    )
-    image = result.images[0]
-
-    # Auto face enhancement using GFPGAN if available
-    try:
-        from gfpgan import GFPGANer
-        restorer = GFPGANer(
-            model_path='GFPGANv1.4.pth',
-            upscale=1,
-            arch='clean',
-            channel_multiplier=2
-        )
-        import numpy as np
-        img_np = np.array(image)[:, :, ::-1]
-        _, _, restored = restorer.enhance(
-            img_np,
-            has_aligned=False,
-            only_center_face=False,
-            paste_back=True
-        )
-        image = Image.fromarray(restored[:, :, ::-1])
-    except Exception:
-        pass
-
+    image = Image.open(BytesIO(response.content))
     return image
 
-
 # ─────────────────────────────────────────────
-# UI — HEADER
+# UI INPUT
 # ─────────────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("## 🎭 Emotion Story Generator")
-st.markdown(
-    "<p style='color:#888; font-size:15px; margin-top:-10px;'>"
-    "Type anything — a feeling, a moment, a thought. We'll detect the emotion, "
-    "write a story, and generate an image for it."
-    "</p>",
-    unsafe_allow_html=True
-)
-st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+user_prompt = st.text_area("Enter your prompt")
 
-
-# ─────────────────────────────────────────────
-# UI — INPUT
-# ─────────────────────────────────────────────
-user_prompt = st.text_area(
-    label="Your prompt",
-    placeholder="e.g. She stood at the edge of the cliff, looking down at the waves...",
-    height=120,
-    label_visibility="collapsed"
-)
-
-generate_btn = st.button("✦ Generate")
-
-
-# ─────────────────────────────────────────────
-# UI — GENERATION
-# ─────────────────────────────────────────────
-if generate_btn:
+if st.button("Generate"):
 
     if not user_prompt.strip():
-        st.warning("Please enter a prompt before generating.")
+        st.warning("Please enter something!")
         st.stop()
 
-    # Load models
+    # Load model
     with st.spinner("Loading emotion model..."):
-        emotion_clf = load_emotion_model()
+        clf = load_emotion_model()
 
-    with st.spinner("Loading image model (first run may take a few minutes)..."):
-        try:
-            import subprocess
-            subprocess.run(
-                ["pip", "install", "gfpgan", "-q"],
-                capture_output=True
-            )
-        except Exception:
-            pass
-        sd_pipe = load_sd_pipeline()
+    # Detect emotion
+    with st.spinner("Detecting emotion..."):
+        emotion = detect_emotion(clf, user_prompt)
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+    st.success(f"Detected Emotion: {emotion.upper()}")
 
-    # ── Step 1: Emotion
-    st.markdown("<p class='section-label'>Step 1 — Emotion Detected</p>", unsafe_allow_html=True)
-    with st.spinner("Analyzing emotion..."):
-        emotion = detect_emotion(emotion_clf, user_prompt)
-
-    style = EMOTION_STYLES.get(emotion, EMOTION_STYLES["neutral"])
-    st.markdown(
-        f"<div class='emotion-badge' style='background:{style['bg']}; color:{style['color']};'>"
-        f"{style['emoji']} &nbsp; {emotion.upper()}"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-    # ── Step 2: Story
-    st.markdown("<p class='section-label'>Step 2 — Generated Story</p>", unsafe_allow_html=True)
-    with st.spinner("Writing story..."):
+    # Generate story
+    with st.spinner("Generating story..."):
         story = generate_story(user_prompt, emotion)
-        time.sleep(0.5)  # small delay for UX feel
+        time.sleep(0.5)
 
-    st.markdown(f"<div class='story-box'>{story}</div>", unsafe_allow_html=True)
+    st.subheader("📖 Story")
+    st.write(story)
 
-    # ── Step 3: Image
-    st.markdown("<p class='section-label'>Step 3 — Generated Image</p>", unsafe_allow_html=True)
-    with st.spinner("Generating image (30 steps)... this takes ~30–60 seconds"):
-        image = generate_image(sd_pipe, user_prompt, emotion)
+    # Generate image
+    with st.spinner("Generating image..."):
+        image = generate_image(user_prompt, emotion)
 
-    st.image(image, use_column_width=True, caption=f"{style['emoji']} {emotion.capitalize()} — AI Generated")
+    if image:
+        st.subheader("🖼️ Image")
+        st.image(image, use_column_width=True)
 
-    # Save image
-    image.save("output.jpg")
+        # Download
+        image.save("output.jpg")
+        with open("output.jpg", "rb") as f:
+            st.download_button(
+                label="⬇ Download Image",
+                data=f,
+                file_name="emotion_image.jpg",
+                mime="image/jpeg"
+            )
+    else:
+        st.error("Image generation failed. Try again.")
 
-    # Download button
-    with open("output.jpg", "rb") as f:
-        st.download_button(
-            label="⬇ Download Image",
-            data=f,
-            file_name="emotion_image.jpg",
-            mime="image/jpeg"
-        )
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    st.success("✦ Done! Try a new prompt above.")
+    st.success("Done! Try another prompt ✨")
