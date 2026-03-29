@@ -1,118 +1,161 @@
 import streamlit as st
-import requests
+import torch
 from transformers import pipeline
-from urllib.parse import quote
 from PIL import Image
-from io import BytesIO
-import os
 
-# Fix HF cache
-os.environ["HF_HOME"] = "/tmp/huggingface"
-
-# ─────────────────────────────────────────────
 # PAGE CONFIG
-# ─────────────────────────────────────────────
-st.set_page_config(page_title="Emotion Story Engine", page_icon="📖", layout="wide")
+st.set_page_config(
+    page_title="Emotion AI Story Generator",
+    page_icon="🎭",
+    layout="centered"
+)
 
-# ─────────────────────────────────────────────
-# LOAD EMOTION MODEL (LIGHTWEIGHT)
-# ─────────────────────────────────────────────
+# 🎨 UI STYLING
+st.markdown("""
+<style>
+.main-title {
+    text-align: center;
+    font-size: 40px;
+    font-weight: bold;
+    margin-top: 30px;
+    background: linear-gradient(90deg, #ff758c, #ff7eb3, #ffd86f);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.stApp {
+    background: linear-gradient(270deg, #ff6ec4, #7873f5, #42e695, #f9ca24);
+    background-size: 800% 800%;
+    animation: gradientMove 10s ease infinite;
+}
+@keyframes gradientMove {
+    0% {background-position: 0% 50%;}
+    50% {background-position: 100% 50%;}
+    100% {background-position: 0% 50%;}
+}
+.block-container {
+    background: rgba(0,0,0,0.65);
+    padding: 30px;
+    border-radius: 15px;
+}
+.story-box {
+    background: #ffffff;
+    color: #333;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+}
+.quote-box {
+    background: #ffffff;
+    color: #333;
+    border-radius: 12px;
+    padding: 10px;
+    margin-top: 10px;
+    text-align: center;
+    font-style: italic;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# 🎭 EMOTION STYLES
+EMOTION_STYLES = {
+    "sadness": {"color": "#7ab3e0", "emoji": "💙"},
+    "joy": {"color": "#f0d060", "emoji": "✨"},
+    "fear": {"color": "#b388e8", "emoji": "🌑"},
+    "anger": {"color": "#e87070", "emoji": "🔥"},
+    "disgust": {"color": "#80c980", "emoji": "🌿"},
+    "neutral": {"color": "#aaaaaa", "emoji": "🌫️"},
+    "surprise": {"color": "#f0a0e0", "emoji": "⚡"},
+}
+
+# 💬 QUOTES
+EMOTION_QUOTES = {
+    "sadness": "It's okay to feel lost — even dark nights end.",
+    "anger": "Calm mind leads to better decisions.",
+    "joy": "Celebrate small wins.",
+    "fear": "Courage grows when you move forward.",
+    "neutral": "Peace lies in balance.",
+    "surprise": "Life is full of unexpected beauty.",
+    "disgust": "Distance can bring clarity."
+}
+
+# 📖 STORY TEMPLATES
+STORY_TEMPLATES = {
+    "sadness": "{prompt} She felt a deep heaviness in her heart but slowly found peace.",
+    "joy": "{prompt} Happiness filled the moment and everything felt bright.",
+    "fear": "{prompt} Fear crept in, but she chose courage and moved forward.",
+    "anger": "{prompt} Anger burned, but she regained calm and control.",
+    "disgust": "{prompt} She stepped away to regain balance and clarity.",
+    "surprise": "{prompt} The unexpected moment filled her with wonder.",
+    "neutral": "{prompt} She moved forward calmly, grounded and aware."
+}
+
+# 🚀 LOAD MODELS
 @st.cache_resource
 def load_emotion_model():
     return pipeline(
         "text-classification",
-        model="bhadresh-savani/distilbert-base-uncased-emotion",
+        model="j-hartmann/emotion-english-distilroberta-base",
         top_k=1,
         device=-1
     )
 
-emotion_classifier = load_emotion_model()
+@st.cache_resource
+def load_image_model():
+    return pipeline(
+        "text-to-image",
+        model="stabilityai/sdxl-turbo"
+    )
 
-# ─────────────────────────────────────────────
-# STYLE MAP
-# ─────────────────────────────────────────────
-STYLE_MAP = {
-    "joy": "happy face, natural smile, sunlight, DSLR photo",
-    "sadness": "sad face, soft light, emotional expression",
-    "fear": "wide eyes, tense face, dark lighting",
-    "anger": "angry expression, sharp features",
-    "surprise": "shocked face, raised eyebrows",
-    "neutral": "normal face, natural daylight"
-}
+# 🔍 FUNCTIONS
+def detect_emotion(model, text):
+    return model(text)[0][0]["label"].lower()
 
-# ─────────────────────────────────────────────
-# SESSION STATE
-# ─────────────────────────────────────────────
-if "history" not in st.session_state:
-    st.session_state.history = []
+def generate_story(prompt, emotion):
+    return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
-# ─────────────────────────────────────────────
-# FUNCTIONS
-# ─────────────────────────────────────────────
-def generate_image(prompt, emotion):
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+def generate_image(prompt):
+    try:
+        generator = load_image_model()
+        result = generator(prompt)
+        return result[0]["image"]
+    except:
+        return None  # fallback if fails
 
-    headers = {
-        "Authorization": f"Bearer {st.secrets['HF_TOKEN']}"
-    }
+# 🎭 UI
+st.markdown("<div class='main-title'>🎭 Emotion AI Story Generator ✨</div>", unsafe_allow_html=True)
 
-    payload = {
-        "inputs": f"{prompt}, {emotion}, realistic human photo",
-        "options": {"wait_for_model": True}
-    }
+user_prompt = st.text_area("", placeholder="Type your feeling or story idea...")
 
-    response = requests.post(API_URL, headers=headers, json=payload)
+if st.button("✨ Generate"):
 
-    if response.status_code != 200:
-        return None
-
-    return Image.open(BytesIO(response.content))
-
-
-# ─────────────────────────────────────────────
-# UI
-# ─────────────────────────────────────────────
-st.title("Emotion-Aware AI Story & Visual Generator")
-
-prompt = st.text_area("Enter your prompt")
-
-if st.button("Generate Story and Visual"):
-
-    if not prompt.strip():
+    if not user_prompt.strip():
         st.warning("Please enter a prompt")
         st.stop()
 
-    # Emotion
-    with st.spinner("Detecting emotion..."):
-        emo_res = emotion_classifier(prompt)[0][0]
-        emotion = emo_res['label']
-        confidence = round(emo_res['score'], 2)
+    # Emotion Detection
+    clf = load_emotion_model()
+    emotion = detect_emotion(clf, user_prompt)
 
-    st.success(f"Emotion: {emotion.upper()} ({confidence})")
+    style = EMOTION_STYLES.get(emotion, EMOTION_STYLES["neutral"])
 
-    # Story (simple)
-    story = f"{prompt} The moment carried a strong sense of {emotion}, shaping everything around it."
+    st.markdown(
+        f"<h3 style='color:{style['color']}'>{style['emoji']} {emotion.upper()}</h3>",
+        unsafe_allow_html=True
+    )
 
-    st.subheader("📖 Story")
-    st.write(story)
+    # Quote
+    quote = EMOTION_QUOTES.get(emotion, "")
+    st.markdown(f"<div class='quote-box'>{quote}</div>", unsafe_allow_html=True)
 
-    # Image
-    with st.spinner("Generating image (10–20 sec)..."):
-        image = generate_image(prompt, emotion)
+    # Story
+    story = generate_story(user_prompt, emotion)
+    st.markdown(f"<div class='story-box'>{story}</div>", unsafe_allow_html=True)
+
+    # Image Generation
+    with st.spinner("Generating image..."):
+        image = generate_image(user_prompt)
 
     if image:
-        st.subheader("🖼️ Image")
         st.image(image, use_column_width=True)
     else:
-        st.error("Image generation failed. Try again.")
-
-    # Save history
-    st.session_state.history.append((prompt, emotion))
-
-# ─────────────────────────────────────────────
-# HISTORY
-# ─────────────────────────────────────────────
-if st.session_state.history:
-    st.subheader("History")
-    for p, e in reversed(st.session_state.history):
-        st.write(f"{p} → {e}")
+        st.info("⚠️ Image generation unavailable on free deployment.")
