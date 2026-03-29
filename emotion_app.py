@@ -6,14 +6,14 @@ import requests
 import io
 import time
 
-# PAGE CONFIG
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="Emotion AI Story Generator",
     page_icon="🎭",
     layout="centered"
 )
 
-# 🎨 UI STYLE
+# ---------------- UI STYLE ----------------
 st.markdown("""
 <style>
 .main-title {
@@ -26,14 +26,7 @@ st.markdown("""
     -webkit-text-fill-color: transparent;
 }
 .stApp {
-    background: linear-gradient(270deg, #ff6ec4, #7873f5, #42e695, #f9ca24);
-    background-size: 800% 800%;
-    animation: gradientMove 10s ease infinite;
-}
-@keyframes gradientMove {
-    0% {background-position: 0% 50%;}
-    50% {background-position: 100% 50%;}
-    100% {background-position: 0% 50%;}
+    background: linear-gradient(270deg, #42e695, #3bb2b8);
 }
 .block-container {
     background: rgba(0,0,0,0.65);
@@ -59,7 +52,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🎭 EMOTION DATA
+# ---------------- EMOTION DATA ----------------
 EMOTION_STYLES = {
     "sadness": {"color": "#7ab3e0", "emoji": "💙"},
     "joy": {"color": "#f0d060", "emoji": "✨"},
@@ -81,34 +74,33 @@ EMOTION_QUOTES = {
 }
 
 STORY_TEMPLATES = {
-    "sadness": "{prompt} She felt a deep heaviness in her heart but slowly found peace.",
+    "sadness": "{prompt} She felt a deep heaviness but slowly found peace.",
     "joy": "{prompt} Happiness filled the moment and everything felt bright.",
-    "fear": "{prompt} Fear crept in, but she chose courage and moved forward.",
-    "anger": "{prompt} Anger burned, but she regained calm and control.",
-    "disgust": "{prompt} She stepped away to regain balance and clarity.",
-    "surprise": "{prompt} The unexpected moment filled her with wonder.",
-    "neutral": "{prompt} She moved forward calmly, grounded and aware."
+    "fear": "{prompt} Fear crept in, but she chose courage.",
+    "anger": "{prompt} Anger burned, but she regained control.",
+    "disgust": "{prompt} She stepped away and found clarity.",
+    "surprise": "{prompt} The moment filled her with wonder.",
+    "neutral": "{prompt} She moved forward calmly and steadily."
 }
 
-# 🚀 LOAD MODEL
+# ---------------- MODEL ----------------
 @st.cache_resource
-def load_emotion_model():
+def load_model():
     return pipeline(
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
-        top_k=1,
         device=-1
     )
 
-# 🔍 FUNCTIONS
+# ---------------- FUNCTIONS ----------------
 def detect_emotion(model, text):
-    return model(text)[0][0]["label"].lower()
+    return model(text)[0]["label"].lower()
 
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
-# 🖼️ IMAGE GENERATION (HuggingFace API - FINAL FIX)
-API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+# ---------------- IMAGE API ----------------
+API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
 
 def generate_image(prompt):
     try:
@@ -117,12 +109,12 @@ def generate_image(prompt):
         }
 
         payload = {
-            "inputs": f"cinematic, ultra realistic, 4k, {prompt}"
+            "inputs": f"ultra realistic, 4k, {prompt}"
         }
 
         response = requests.post(API_URL, headers=headers, json=payload)
 
-        # Handle model loading delay
+        # Retry if model is loading
         if response.status_code == 503:
             time.sleep(10)
             response = requests.post(API_URL, headers=headers, json=payload)
@@ -137,7 +129,7 @@ def generate_image(prompt):
         st.error(f"Image error: {e}")
         return None
 
-# 🎭 UI
+# ---------------- UI ----------------
 st.markdown("<div class='main-title'>🎭 Emotion AI Story Generator ✨</div>", unsafe_allow_html=True)
 
 user_prompt = st.text_area("", placeholder="Type your feeling or story idea...")
@@ -148,8 +140,8 @@ if st.button("✨ Generate"):
         st.warning("Please enter a prompt")
         st.stop()
 
-    clf = load_emotion_model()
-    emotion = detect_emotion(clf, user_prompt)
+    model = load_model()
+    emotion = detect_emotion(model, user_prompt)
 
     style = EMOTION_STYLES.get(emotion, EMOTION_STYLES["neutral"])
 
@@ -159,8 +151,10 @@ if st.button("✨ Generate"):
     )
 
     # Quote
-    quote = EMOTION_QUOTES.get(emotion, "")
-    st.markdown(f"<div class='quote-box'>{quote}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='quote-box'>{EMOTION_QUOTES.get(emotion, '')}</div>",
+        unsafe_allow_html=True
+    )
 
     # Story
     story = generate_story(user_prompt, emotion)
