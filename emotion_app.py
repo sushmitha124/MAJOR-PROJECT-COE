@@ -1,37 +1,34 @@
 import streamlit as st
 from transformers import pipeline
-from diffusers import StableDiffusionPipeline
-import torch
+from PIL import Image
+import requests
+import io
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="Emotion AI Story Generator", page_icon="🎭")
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(
+    page_title="Emotion AI Story Generator",
+    page_icon="🎭",
+    layout="centered"
+)
 
-# ---------------- LOAD MODELS ----------------
+# ---------------- MODEL ----------------
 @st.cache_resource
-def load_emotion_model():
+def load_model():
     return pipeline(
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
         device=-1
     )
 
-@st.cache_resource
-def load_image_model():
-    pipe = StableDiffusionPipeline.from_pretrained(
-        "runwayml/stable-diffusion-v1-5"
-    )
-    pipe = pipe.to("cpu")  # CPU safe
-    return pipe
-
 # ---------------- DATA ----------------
 EMOTION_QUOTES = {
-    "joy": "Celebrate small wins 🎉",
-    "sadness": "Even dark nights end 💙",
-    "anger": "Stay calm 🔥",
-    "fear": "Be brave 🌑",
-    "neutral": "Peace lies in balance 🌫️",
-    "surprise": "Life is beautiful ⚡",
-    "disgust": "Clarity comes with distance 🌿"
+    "sadness": "💙 Even the darkest nights end.",
+    "joy": "✨ Celebrate small wins.",
+    "fear": "🌑 Courage grows when you move forward.",
+    "anger": "🔥 Stay calm and think clearly.",
+    "neutral": "🌫️ Peace lies in balance.",
+    "surprise": "⚡ Life is full of beauty.",
+    "disgust": "🌿 Distance brings clarity."
 }
 
 # ---------------- FUNCTIONS ----------------
@@ -39,34 +36,46 @@ def detect_emotion(model, text):
     return model(text)[0]["label"].lower()
 
 def generate_story(prompt, emotion):
-    return f"{prompt} — A story shaped by {emotion} emotions."
+    return f"{prompt} — A moment shaped by {emotion} emotions."
 
+# ✅ FINAL IMAGE FUNCTION (WORKING)
 def generate_image(prompt):
-    pipe = load_image_model()
-    image = pipe(prompt).images[0]
-    return image
+    try:
+        url = f"https://image.pollinations.ai/prompt/{prompt}"
+        response = requests.get(url, timeout=20)
+
+        if response.status_code == 200:
+            return Image.open(io.BytesIO(response.content))
+        else:
+            return None
+    except:
+        return None
 
 # ---------------- UI ----------------
 st.title("🎭 Emotion AI Story Generator")
 
-prompt = st.text_area("Enter your text:")
+user_prompt = st.text_area("Enter your idea:")
 
-if st.button("Generate"):
+if st.button("✨ Generate"):
 
-    if not prompt:
-        st.warning("Enter text")
+    if not user_prompt.strip():
+        st.warning("Please enter text")
         st.stop()
 
-    model = load_emotion_model()
-    emotion = detect_emotion(model, prompt)
+    model = load_model()
+    emotion = detect_emotion(model, user_prompt)
 
-    st.subheader(f"Emotion: {emotion.upper()}")
+    st.subheader(f"{emotion.upper()}")
+
     st.write(EMOTION_QUOTES.get(emotion, ""))
 
-    story = generate_story(prompt, emotion)
+    story = generate_story(user_prompt, emotion)
     st.write(story)
 
     with st.spinner("Generating image..."):
-        image = generate_image(prompt)
+        image = generate_image(user_prompt)
 
-    st.image(image)
+    if image:
+        st.image(image, use_column_width=True)
+    else:
+        st.warning("⚠️ Image generation failed. Try again.")
