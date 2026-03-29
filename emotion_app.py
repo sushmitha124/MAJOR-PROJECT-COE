@@ -4,6 +4,7 @@ from transformers import pipeline
 from PIL import Image
 import requests
 import io
+import time
 
 # PAGE CONFIG
 st.set_page_config(
@@ -89,7 +90,7 @@ STORY_TEMPLATES = {
     "neutral": "{prompt} She moved forward calmly, grounded and aware."
 }
 
-# 🚀 LOAD EMOTION MODEL
+# 🚀 LOAD MODEL
 @st.cache_resource
 def load_emotion_model():
     return pipeline(
@@ -106,26 +107,30 @@ def detect_emotion(model, text):
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
-# 🖼️ IMAGE GENERATION (HuggingFace API)
+# 🖼️ IMAGE GENERATION (HuggingFace API - FINAL FIX)
 API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
 
 def generate_image(prompt):
     try:
-        headers = {}
-        if "HF_TOKEN" in st.secrets:
-            headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
+        headers = {
+            "Authorization": f"Bearer {st.secrets['HF_TOKEN']}"
+        }
 
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            json={"inputs": f"cinematic, highly detailed, {prompt}"},
-            timeout=60
-        )
+        payload = {
+            "inputs": f"cinematic, ultra realistic, 4k, {prompt}"
+        }
+
+        response = requests.post(API_URL, headers=headers, json=payload)
+
+        # Handle model loading delay
+        if response.status_code == 503:
+            time.sleep(10)
+            response = requests.post(API_URL, headers=headers, json=payload)
 
         if response.status_code == 200:
             return Image.open(io.BytesIO(response.content))
         else:
-            st.warning("Image generation API error")
+            st.error(f"API Error: {response.status_code}")
             return None
 
     except Exception as e:
@@ -143,7 +148,6 @@ if st.button("✨ Generate"):
         st.warning("Please enter a prompt")
         st.stop()
 
-    # Emotion Detection
     clf = load_emotion_model()
     emotion = detect_emotion(clf, user_prompt)
 
