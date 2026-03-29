@@ -2,6 +2,11 @@ import streamlit as st
 import torch
 from transformers import pipeline
 from PIL import Image
+import google.generativeai as genai
+import io
+
+# 🔐 CONFIG GEMINI
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # PAGE CONFIG
 st.set_page_config(
@@ -10,12 +15,12 @@ st.set_page_config(
     layout="centered"
 )
 
-# 🎨 UI STYLING
+# 🎨 UI STYLE
 st.markdown("""
 <style>
 .main-title {
     text-align: center;
-    font-size: 40px;
+    font-size: 42px;
     font-weight: bold;
     margin-top: 30px;
     background: linear-gradient(90deg, #ff758c, #ff7eb3, #ffd86f);
@@ -56,7 +61,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🎭 EMOTION STYLES
+# 🎭 EMOTION DATA
 EMOTION_STYLES = {
     "sadness": {"color": "#7ab3e0", "emoji": "💙"},
     "joy": {"color": "#f0d060", "emoji": "✨"},
@@ -67,18 +72,16 @@ EMOTION_STYLES = {
     "surprise": {"color": "#f0a0e0", "emoji": "⚡"},
 }
 
-# 💬 QUOTES
 EMOTION_QUOTES = {
-    "sadness": "It's okay to feel lost — even dark nights end.",
-    "anger": "Calm mind leads to better decisions.",
-    "joy": "Celebrate small wins.",
-    "fear": "Courage grows when you move forward.",
-    "neutral": "Peace lies in balance.",
-    "surprise": "Life is full of unexpected beauty.",
-    "disgust": "Distance can bring clarity."
+    "sadness": "💙 It's okay to feel lost — even dark nights end.",
+    "anger": "🔥 Calm mind leads to better decisions.",
+    "joy": "🎉 Celebrate small wins.",
+    "fear": "🌑 Courage grows when you move forward.",
+    "neutral": "🌫️ Peace lies in balance.",
+    "surprise": "⚡ Life is full of unexpected beauty.",
+    "disgust": "🌿 Distance brings clarity."
 }
 
-# 📖 STORY TEMPLATES
 STORY_TEMPLATES = {
     "sadness": "{prompt} She felt a deep heaviness in her heart but slowly found peace.",
     "joy": "{prompt} Happiness filled the moment and everything felt bright.",
@@ -99,13 +102,6 @@ def load_emotion_model():
         device=-1
     )
 
-@st.cache_resource
-def load_image_model():
-    return pipeline(
-        "text-to-image",
-        model="stabilityai/sdxl-turbo"
-    )
-
 # 🔍 FUNCTIONS
 def detect_emotion(model, text):
     return model(text)[0][0]["label"].lower()
@@ -115,11 +111,21 @@ def generate_story(prompt, emotion):
 
 def generate_image(prompt):
     try:
-        generator = load_image_model()
-        result = generator(prompt)
-        return result[0]["image"]
-    except:
-        return None  # fallback if fails
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        response = model.generate_content(
+            f"Create a realistic cinematic image showing emotion '{prompt}'.",
+            generation_config={"response_modalities": ["TEXT", "IMAGE"]}
+        )
+
+        for part in response.parts:
+            if hasattr(part, "inline_data"):
+                image_bytes = part.inline_data.data
+                return Image.open(io.BytesIO(image_bytes))
+
+    except Exception as e:
+        st.error(f"Image error: {e}")
+        return None
 
 # 🎭 UI
 st.markdown("<div class='main-title'>🎭 Emotion AI Story Generator ✨</div>", unsafe_allow_html=True)
@@ -151,11 +157,11 @@ if st.button("✨ Generate"):
     story = generate_story(user_prompt, emotion)
     st.markdown(f"<div class='story-box'>{story}</div>", unsafe_allow_html=True)
 
-    # Image Generation
+    # 🖼️ IMAGE GENERATION (GEMINI)
     with st.spinner("Generating image..."):
         image = generate_image(user_prompt)
 
     if image:
         st.image(image, use_column_width=True)
     else:
-        st.info("⚠️ Image generation unavailable on free deployment.")
+        st.warning("⚠️ Image generation failed.")
