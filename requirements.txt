@@ -2,4 +2,4 @@ streamlit
 torch
 transformers
 Pillow
-google-generativeai
+requests
