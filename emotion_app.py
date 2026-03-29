@@ -2,11 +2,8 @@ import streamlit as st
 import torch
 from transformers import pipeline
 from PIL import Image
-import google.generativeai as genai
+import requests
 import io
-
-# 🔐 CONFIG GEMINI
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # PAGE CONFIG
 st.set_page_config(
@@ -92,7 +89,7 @@ STORY_TEMPLATES = {
     "neutral": "{prompt} She moved forward calmly, grounded and aware."
 }
 
-# 🚀 LOAD MODELS
+# 🚀 LOAD EMOTION MODEL
 @st.cache_resource
 def load_emotion_model():
     return pipeline(
@@ -109,19 +106,27 @@ def detect_emotion(model, text):
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
+# 🖼️ IMAGE GENERATION (HuggingFace API)
+API_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+
 def generate_image(prompt):
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        headers = {}
+        if "HF_TOKEN" in st.secrets:
+            headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
 
-        response = model.generate_content(
-            f"Create a realistic cinematic image showing emotion '{prompt}'.",
-            generation_config={"response_modalities": ["TEXT", "IMAGE"]}
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={"inputs": f"cinematic, highly detailed, {prompt}"},
+            timeout=60
         )
 
-        for part in response.parts:
-            if hasattr(part, "inline_data"):
-                image_bytes = part.inline_data.data
-                return Image.open(io.BytesIO(image_bytes))
+        if response.status_code == 200:
+            return Image.open(io.BytesIO(response.content))
+        else:
+            st.warning("Image generation API error")
+            return None
 
     except Exception as e:
         st.error(f"Image error: {e}")
@@ -157,7 +162,7 @@ if st.button("✨ Generate"):
     story = generate_story(user_prompt, emotion)
     st.markdown(f"<div class='story-box'>{story}</div>", unsafe_allow_html=True)
 
-    # 🖼️ IMAGE GENERATION (GEMINI)
+    # Image
     with st.spinner("Generating image..."):
         image = generate_image(user_prompt)
 
