@@ -4,7 +4,6 @@ from transformers import pipeline
 from PIL import Image
 import requests
 import io
-import time
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -99,30 +98,25 @@ def detect_emotion(model, text):
 def generate_story(prompt, emotion):
     return STORY_TEMPLATES.get(emotion, STORY_TEMPLATES["neutral"]).format(prompt=prompt)
 
-# ---------------- IMAGE API ----------------
-API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
-
+# ---------------- IMAGE GENERATION (FINAL FIX) ----------------
 def generate_image(prompt):
     try:
-        headers = {
-            "Authorization": f"Bearer {st.secrets['HF_TOKEN']}"
-        }
+        response = requests.post(
+            "https://hf.space/embed/stabilityai/stable-diffusion/+/api/predict/",
+            json={"data": [prompt]},
+            timeout=60
+        )
 
-        payload = {
-            "inputs": f"ultra realistic, 4k, {prompt}"
-        }
+        result = response.json()
 
-        response = requests.post(API_URL, headers=headers, json=payload)
+        if "data" in result:
+            image_url = result["data"][0]
 
-        # Retry if model is loading
-        if response.status_code == 503:
-            time.sleep(10)
-            response = requests.post(API_URL, headers=headers, json=payload)
+            image_response = requests.get(image_url)
+            return Image.open(io.BytesIO(image_response.content))
 
-        if response.status_code == 200:
-            return Image.open(io.BytesIO(response.content))
         else:
-            st.error(f"API Error: {response.status_code}")
+            st.error("Image generation failed")
             return None
 
     except Exception as e:
