@@ -1,32 +1,24 @@
 import gradio as gr
-import google.generativeai as genai
 import os
 import urllib.parse
 import requests
 
 # -------------------------------
-# Gemini Config (STABLE MODEL)
+# Hugging Face APIs
 # -------------------------------
-api_key = os.getenv("GEMINI_API_KEY")
+HF_TEXT_API = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+HF_EMOTION_API = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
 
-if not api_key:
-    raise ValueError("❌ GEMINI_API_KEY not set")
-
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-pro")  # ✅ stable working model
-
-# -------------------------------
-# Hugging Face Emotion Model
-# -------------------------------
-HF_API_URL = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
 HF_TOKEN = os.getenv("HF_API_KEY")
-
 headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 
+# -------------------------------
+# Emotion Detection
+# -------------------------------
 def detect_emotion(text):
     try:
         payload = {"inputs": text}
-        response = requests.post(HF_API_URL, headers=headers, json=payload)
+        response = requests.post(HF_EMOTION_API, headers=headers, json=payload)
 
         if response.status_code != 200:
             return "Neutral"
@@ -41,7 +33,29 @@ def detect_emotion(text):
         return "Neutral"
 
 # -------------------------------
-# Story + Image Generation
+# Story Generation (NO GEMINI)
+# -------------------------------
+def generate_story_text(prompt):
+    try:
+        payload = {
+            "inputs": prompt,
+            "parameters": {"max_length": 200}
+        }
+
+        response = requests.post(HF_TEXT_API, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            return "Error generating story"
+
+        result = response.json()
+
+        return result[0]["generated_text"]
+
+    except:
+        return "Error generating story"
+
+# -------------------------------
+# Main Function
 # -------------------------------
 def generate_story(user_input):
     try:
@@ -53,8 +67,7 @@ def generate_story(user_input):
         {user_input}
         """
 
-        response = model.generate_content(prompt)
-        story = response.text
+        story = generate_story_text(prompt)
 
         # Image generation (Pollinations)
         image_prompt = f"{emotion} cinematic scene, realistic, {user_input}"
@@ -78,7 +91,7 @@ iface = gr.Interface(
         gr.Image(label="Generated Image")
     ],
     title="Emotion-Aware AI Assistant with Visual Storytelling",
-    description="AI detects emotion, generates story and image."
+    description="AI detects emotion, generates story and image (fully free, no Gemini)."
 )
 
 # -------------------------------
