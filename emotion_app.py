@@ -35,23 +35,30 @@ emotion_model, story_model = load_models()
 # -------------------------------
 # IMAGE GENERATION (SAFE)
 # -------------------------------
+import urllib.parse
+import requests
+import time
+
 def generate_image(prompt, emotion):
     image_prompt = f"{emotion} cinematic realistic scene, 4k, {prompt}"
     encoded = urllib.parse.quote(image_prompt)
 
     url = f"https://image.pollinations.ai/prompt/{encoded}"
 
-    # retry logic
+    # 🔁 Retry 3 times
     for _ in range(3):
         try:
             res = requests.get(url, timeout=5)
+
             if res.status_code == 200:
                 return url
+
         except:
             pass
+
         time.sleep(2)
 
-    return "https://via.placeholder.com/512?text=Image+Failed"
+    return None  # ❌ no fake URL
 
 # -------------------------------
 # UI INPUT
@@ -93,8 +100,11 @@ if st.button("Generate"):
     # -------------------------------
     # IMAGE GENERATION
     # -------------------------------
-    with st.spinner("Generating image..."):
-        image_url = generate_image(user_input, emotion)
-
     st.subheader("🖼️ Image")
-    st.image(image_url)
+
+    image_url = generate_image(user_input, emotion)
+
+    if image_url:
+        st.image(image_url)
+    else:
+        st.warning("⚠️ Image generation failed. Try again.")
