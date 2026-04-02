@@ -17,8 +17,12 @@ headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 # -------------------------------
 def detect_emotion(text):
     try:
-        payload = {"inputs": text}
-        response = requests.post(HF_EMOTION_API, headers=headers, json=payload)
+        response = requests.post(
+            HF_EMOTION_API,
+            headers=headers,
+            json={"inputs": text},
+            timeout=10
+        )
 
         if response.status_code != 200:
             return "Neutral"
@@ -26,33 +30,32 @@ def detect_emotion(text):
         result = response.json()
         emotions = result[0]
 
-        top_emotion = max(emotions, key=lambda x: x['score'])
-        return top_emotion['label']
+        top = max(emotions, key=lambda x: x['score'])
+        return top['label']
 
     except:
         return "Neutral"
 
 # -------------------------------
-# Story Generation (NO GEMINI)
+# Story Generation
 # -------------------------------
 def generate_story_text(prompt):
     try:
-        payload = {
-            "inputs": prompt,
-            "parameters": {"max_length": 200}
-        }
-
-        response = requests.post(HF_TEXT_API, headers=headers, json=payload)
+        response = requests.post(
+            HF_TEXT_API,
+            headers=headers,
+            json={"inputs": prompt},
+            timeout=15
+        )
 
         if response.status_code != 200:
-            return "Error generating story"
+            return "Story generation failed"
 
         result = response.json()
-
         return result[0]["generated_text"]
 
     except:
-        return "Error generating story"
+        return "Story generation failed"
 
 # -------------------------------
 # Main Function
@@ -63,16 +66,27 @@ def generate_story(user_input):
 
         prompt = f"""
         The user is feeling {emotion}.
-        Continue a short, engaging story based on this emotion:
+        Continue a short, engaging story:
         {user_input}
         """
 
         story = generate_story_text(prompt)
 
-        # Image generation (Pollinations)
+        # -------------------------------
+        # Image generation (SAFE)
+        # -------------------------------
         image_prompt = f"{emotion} cinematic scene, realistic, {user_input}"
-        encoded_prompt = urllib.parse.quote(image_prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        encoded = urllib.parse.quote(image_prompt)
+
+        image_url = f"https://image.pollinations.ai/prompt/{encoded}"
+
+        # ✅ Prevent crash if image API fails
+        try:
+            test = requests.get(image_url, timeout=5)
+            if test.status_code != 200:
+                image_url = None
+        except:
+            image_url = None
 
         return emotion, story, image_url
 
