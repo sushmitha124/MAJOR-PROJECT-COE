@@ -1,116 +1,100 @@
-import gradio as gr
-import os
+import streamlit as st
 import urllib.parse
 import requests
+import time
+from transformers import pipeline
 
 # -------------------------------
-# Hugging Face APIs
+# PAGE CONFIG
 # -------------------------------
-HF_TEXT_API = "https://api-inference.huggingface.co/models/google/flan-t5-large"
-HF_EMOTION_API = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
+st.set_page_config(page_title="Emotion AI", layout="centered")
 
-HF_TOKEN = os.getenv("HF_API_KEY")
-headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
-
-# -------------------------------
-# Emotion Detection
-# -------------------------------
-def detect_emotion(text):
-    try:
-        response = requests.post(
-            HF_EMOTION_API,
-            headers=headers,
-            json={"inputs": text},
-            timeout=10
-        )
-
-        if response.status_code != 200:
-            return "Neutral"
-
-        result = response.json()
-        emotions = result[0]
-
-        top = max(emotions, key=lambda x: x['score'])
-        return top['label']
-
-    except:
-        return "Neutral"
+st.title("🎭 Emotion-Aware AI Story Generator")
+st.write("Detect emotion → Generate story → Generate image")
 
 # -------------------------------
-# Story Generation
+# LOAD MODELS (CACHED)
 # -------------------------------
-def generate_story_text(prompt):
-    try:
-        response = requests.post(
-            HF_TEXT_API,
-            headers=headers,
-            json={"inputs": prompt},
-            timeout=15
-        )
+@st.cache_resource
+def load_models():
+    emotion_model = pipeline(
+        "text-classification",
+        model="j-hartmann/emotion-english-distilroberta-base",
+        top_k=1
+    )
 
-        if response.status_code != 200:
-            return "Story generation failed"
+    story_model = pipeline(
+        "text2text-generation",
+        model="google/flan-t5-base"
+    )
 
-        result = response.json()
-        return result[0]["generated_text"]
+    return emotion_model, story_model
 
-    except:
-        return "Story generation failed"
+emotion_model, story_model = load_models()
 
 # -------------------------------
-# Main Function
+# IMAGE GENERATION (SAFE)
 # -------------------------------
-def generate_story(user_input):
-    try:
-        emotion = detect_emotion(user_input)
+def generate_image(prompt, emotion):
+    image_prompt = f"{emotion} cinematic realistic scene, 4k, {prompt}"
+    encoded = urllib.parse.quote(image_prompt)
 
-        prompt = f"""
-        The user is feeling {emotion}.
-        Continue a short, engaging story:
-        {user_input}
-        """
+    url = f"https://image.pollinations.ai/prompt/{encoded}"
 
-        story = generate_story_text(prompt)
-
-        # -------------------------------
-        # Image generation (SAFE)
-        # -------------------------------
-        image_prompt = f"{emotion} cinematic scene, realistic, {user_input}"
-        encoded = urllib.parse.quote(image_prompt)
-
-        image_url = f"https://image.pollinations.ai/prompt/{encoded}"
-
-        # ✅ Prevent crash if image API fails
+    # retry logic
+    for _ in range(3):
         try:
-            test = requests.get(image_url, timeout=5)
-            if test.status_code != 200:
-                image_url = None
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                return url
         except:
-            image_url = None
+            pass
+        time.sleep(2)
 
-        return emotion, story, image_url
-
-    except Exception as e:
-        return "Error", str(e), None
+    return "https://via.placeholder.com/512?text=Image+Failed"
 
 # -------------------------------
-# UI
+# UI INPUT
 # -------------------------------
-iface = gr.Interface(
-    fn=generate_story,
-    inputs=gr.Textbox(lines=4, placeholder="Enter your thoughts..."),
-    outputs=[
-        gr.Textbox(label="Detected Emotion"),
-        gr.Textbox(label="Generated Story"),
-        gr.Image(label="Generated Image")
-    ],
-    title="Emotion-Aware AI Assistant with Visual Storytelling",
-    description="AI detects emotion, generates story and image (fully free, no Gemini)."
-)
+user_input = st.text_area("Enter your thoughts:")
 
 # -------------------------------
-# Render Entry Point
+# GENERATE BUTTON
 # -------------------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    iface.launch(server_name="0.0.0.0", server_port=port)
+if st.button("Generate"):
+
+    if not user_input.strip():
+        st.warning("Please enter some text")
+        st.stop()
+
+    # -------------------------------
+    # EMOTION DETECTION
+    # -------------------------------
+    with st.spinner("Detecting emotion..."):
+        emo = emotion_model(user_input)[0][0]
+        emotion = emo["label"]
+        score = round(emo["score"], 3)
+
+    st.success(f"🎭 Emotion: {emotion} ({score})")
+
+    # -------------------------------
+    # STORY GENERATION
+    # -------------------------------
+    with st.spinner("Generating story..."):
+        story_prompt = f"Write a short emotional story. Mood: {emotion}. Context: {user_input}"
+        story = story_model(
+            story_prompt,
+            max_length=150
+        )[0]["generated_text"]
+
+    st.subheader("📖 Story")
+    st.write(story)
+
+    # -------------------------------
+    # IMAGE GENERATION
+    # -------------------------------
+    with st.spinner("Generating image..."):
+        image_url = generate_image(user_input, emotion)
+
+    st.subheader("🖼️ Image")
+    st.image(image_url)
