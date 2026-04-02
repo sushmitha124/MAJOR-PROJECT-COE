@@ -24,7 +24,7 @@ def load_models():
     )
 
     story_model = pipeline(
-        "text2text-generation",
+        "text-generation",
         model="google/flan-t5-base"
     )
 
