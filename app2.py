@@ -1,19 +1,20 @@
 import streamlit as st
 import torch
 from transformers import pipeline
+import urllib.parse
 import requests
-import random
-from urllib.parse import quote
 import time
 
-# --- 1. PAGE CONFIG ---
+# PAGE CONFIG
 st.set_page_config(
     page_title="Emotion AI Story Engine",
     page_icon="🎭",
     layout="centered"
 )
 
-# --- 2. ADVANCED UI STYLE ---
+# -------------------------------
+# 🎨 UI STYLE
+# -------------------------------
 st.markdown("""
 <style>
 .main-title {
@@ -40,7 +41,7 @@ st.markdown("""
 }
 
 .block-container {
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.70);
     padding: 35px;
     border-radius: 18px;
     border: 1px solid rgba(255,255,255,0.1);
@@ -56,18 +57,20 @@ st.markdown("""
     background: linear-gradient(135deg, #ff758c, #ff7eb3);
     color: white !important;
     border-radius: 25px !important;
-    width: 100%;
-    font-weight: bold;
     border: none;
-    padding: 10px;
+    font-weight: bold;
+    padding: 0.5rem 2rem;
 }
 
 .emotion-badge {
-    padding: 10px 25px;
+    padding: 8px 20px;
     border-radius: 30px;
     display: inline-block;
     margin-top: 15px;
+    margin-bottom: 10px;
     font-weight: bold;
+    text-transform: uppercase;
+    font-size: 0.9rem;
     color: white;
 }
 
@@ -76,109 +79,97 @@ st.markdown("""
     color: #333;
     border-radius: 12px;
     padding: 20px;
-    margin-top: 20px;
+    margin-bottom: 20px;
     line-height: 1.6;
-    border-left: 6px solid #ff758c;
+    border-left: 5px solid #ff758c;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. LOGIC SETTINGS ---
-EMOTION_UI_THEMES = {
-    "joy": {"bg": "#f0d060", "emoji": "✨"},
-    "sadness": {"bg": "#7ab3e0", "emoji": "💙"},
-    "fear": {"bg": "#b388e8", "emoji": "🌑"},
-    "anger": {"bg": "#e87070", "emoji": "🔥"},
-    "surprise": {"bg": "#42e695", "emoji": "😲"},
-    "neutral": {"bg": "#aaaaaa", "emoji": "🌫️"},
+# -------------------------------
+# EMOTION UI THEMES
+# -------------------------------
+EMOTION_UI = {
+    "sadness": {"bg": "#1e2a3a", "emoji": "💙"},
+    "joy": {"bg": "#d4af37", "emoji": "✨"},
+    "fear": {"bg": "#5a4a78", "emoji": "🌑"},
+    "anger": {"bg": "#a83232", "emoji": "🔥"},
+    "neutral": {"bg": "#555555", "emoji": "🌫️"},
+    "surprise": {"bg": "#2e7d32", "emoji": "😲"},
 }
 
-STYLE_MAP = {
-    "joy": "clear happy face, authentic smile, natural sunlight, candid photo, symmetrical, realistic skin",
-    "sadness": "clear face, quiet expression, soft window light, natural skin texture, sharp focus on eyes",
-    "fear": "clear focused face, wide eyes, sharp facial features, realistic human anatomy",
-    "anger": "sharp clear face, intense gaze, realistic skin, indoor lighting, candid photo",
-    "surprise": "clear shocked face, sharp focus, eyebrows raised, authentic human reaction",
-    "neutral": "clear normal face, unposed headshot, natural daylight, ordinary person, sharp details"
-}
-
-# --- 4. BACKEND FUNCTIONS ---
+# -------------------------------
+# LOAD MODELS
+# -------------------------------
 @st.cache_resource
 def load_emotion_model():
     return pipeline(
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
         top_k=1,
-        device=0 if torch.cuda.is_available() else -1
+        device=-1 # Set to 0 if you have a GPU
     )
 
-def generate_visual_story(prompt, emotion):
-    # Text Generation via Pollinations OpenAI model
-    instruction = (
-        f"Write a short, meaningful story paragraph. "
-        f"Continue this prompt: '{prompt}'. Mood: {emotion}. "
-        f"Use simple words and stay grounded in daily life."
-    )
-    text_url = f"https://text.pollinations.ai/{quote(instruction)}?model=openai"
+# -------------------------------
+# CORE LOGIC FUNCTIONS
+# -------------------------------
+def generate_dynamic_story(prompt, emotion):
+    # This uses the Pollinations Text API to generate a unique story paragraph
+    instruction = f"Write one meaningful, realistic story paragraph about: {prompt}. The mood is {emotion}."
+    encoded_text = urllib.parse.quote(instruction)
+    url = f"https://text.pollinations.ai/{encoded_text}?model=openai"
     try:
-        story = requests.get(text_url, timeout=10).text.strip()
+        res = requests.get(url, timeout=10)
+        return res.text.strip()
     except:
-        story = f"{prompt}. It was a moment that defined the day, carrying the weight of {emotion}."
-    
-    # Image Generation via Pollinations Flux model
-    tech_style = STYLE_MAP.get(emotion, "realistic photography, clear face")
-    image_prompt = (
-        f"High-quality realistic photo of a human: {prompt}. "
-        f"{tech_style}, natural lighting, no distortions, 8k."
-    )
-    image_url = f"https://image.pollinations.ai/prompt/{quote(image_prompt)}?width=1024&height=768&model=flux&nologo=true"
-    
-    return story, image_url
+        return f"{prompt}. The moment felt deeply connected to a sense of {emotion}."
 
-# --- 5. MAIN UI ---
+def generate_image(prompt, emotion):
+    # Uses high-quality Flux model for realistic visuals
+    image_prompt = f"A high-quality realistic photo, {emotion} atmosphere, {prompt}, cinematic lighting, 8k, detailed human features"
+    encoded_img = urllib.parse.quote(image_prompt)
+    return f"https://image.pollinations.ai/prompt/{encoded_img}?width=1024&height=768&model=flux&nologo=true"
+
+# -------------------------------
+# UI EXECUTION
+# -------------------------------
 st.markdown("<div class='main-title'>🎭 Emotion AI Story Engine ✨</div>", unsafe_allow_html=True)
 
-clf = load_emotion_model()
-
-user_prompt = st.text_area("", placeholder="Type a feeling or a moment (e.g., Walking home in the rain...)")
+user_prompt = st.text_area("", placeholder="What's on your mind? (e.g., walking home in the rain...)")
 
 if st.button("✨ Generate Experience"):
     if not user_prompt.strip():
-        st.warning("Please enter a prompt first!")
+        st.warning("Please enter a prompt first.")
         st.stop()
 
-    with st.spinner("Analyzing emotions and crafting your world..."):
-        # Detect Emotion
-        raw_emotion = clf(user_prompt)[0][0]["label"].lower()
+    with st.spinner("Analyzing emotions and weaving your story..."):
+        # 1. Detect Emotion
+        clf = load_emotion_model()
+        emo_label = clf(user_prompt)[0][0]["label"].lower()
         
-        # Get Story and Image
-        story_text, img_url = generate_visual_story(user_prompt, raw_emotion)
+        # 2. Generate Story Content
+        story_text = generate_dynamic_story(user_prompt, emo_label)
         
-        # UI Styling
-        theme = EMOTION_UI_THEMES.get(raw_emotion, EMOTION_UI_THEMES["neutral"])
+        # 3. Get Image URL
+        image_url = generate_image(user_prompt, emo_label)
+        
+        # --- DISPLAY RESULTS ---
+        theme = EMOTION_UI.get(emo_label, EMOTION_UI["neutral"])
 
-        # Display Emotion Badge
+        # Badge
         st.markdown(
             f"<div class='emotion-badge' style='background:{theme['bg']}'>"
-            f"{theme['emoji']} {raw_emotion.upper()}</div>",
+            f"{theme['emoji']} {emo_label}</div>",
             unsafe_allow_html=True
         )
 
-        # Display Story
-        st.markdown(f"<div class='story-box'><b>The Scene:</b><br>{story_text}</div>", unsafe_allow_html=True)
+        # Story Box
+        st.markdown(f"""
+            <div class='story-box'>
+                <strong>The Scene:</strong><br>
+                {story_text}
+            </div>
+        """, unsafe_allow_html=True)
 
-        # Display Image
-        st.image(img_url, use_container_width=True)
-        
-        st.success("Scene Generated Successfully!")
-
-# --- 6. HISTORY (Optional) ---
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# If you want to see previous results, they appear here
-if st.session_state.history:
-    st.markdown("---")
-    st.subheader("Previous Explorations")
-    for h in reversed(st.session_state.history):
-        st.text(f"{h['mood'].upper()}: {h['input'][:50]}...")
+        # Image
+        st.image(image_url, use_container_width=True)
