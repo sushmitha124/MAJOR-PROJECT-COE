@@ -6,3 +6,6 @@ requests
 gradio
 google-generativeai
 torchvision
+flask
+openai
+gunicorn
