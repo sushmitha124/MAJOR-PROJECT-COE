@@ -1,194 +1,184 @@
-import os
-import textwrap
-from typing import List, Dict
-from contextlib import nullcontext
-
 import streamlit as st
-from PIL import Image
+import torch
 from transformers import pipeline
+import requests
+import random
+from urllib.parse import quote
+import time
 
-# ✅ Optional: Only use token for Stable Diffusion image generation
-HF_TOKEN = "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"  # replace with your real Hugging Face token
+# --- 1. PAGE CONFIG ---
+st.set_page_config(
+    page_title="Emotion AI Story Engine",
+    page_icon="🎭",
+    layout="centered"
+)
 
-# Optional image generation support
-try:
-    from diffusers import StableDiffusionPipeline
-    import torch
-    DIFFUSERS_AVAILABLE = True
-except Exception:
-    DIFFUSERS_AVAILABLE = False
+# --- 2. ADVANCED UI STYLE ---
+st.markdown("""
+<style>
+.main-title {
+    text-align: center;
+    font-size: 42px;
+    font-weight: bold;
+    margin-top: 40px;
+    margin-bottom: 10px;
+    background: linear-gradient(90deg, #ff758c, #ff7eb3, #ffd86f);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
 
+.stApp {
+    background: linear-gradient(270deg, #ff6ec4, #7873f5, #42e695, #f9ca24);
+    background-size: 800% 800%;
+    animation: gradientMove 10s ease infinite;
+}
 
-# -----------------------------
-# Model Loading (cached)
-# -----------------------------
-@st.cache_resource(show_spinner=False)
-def load_emotion_pipeline():
-    """Load emotion classification model safely without sending HF_TOKEN."""
-    model_name = "j-hartmann/emotion-english-distilroberta-base"
+@keyframes gradientMove {
+    0% {background-position: 0% 50%;}
+    50% {background-position: 100% 50%;}
+    100% {background-position: 0% 50%;}
+}
+
+.block-container {
+    background: rgba(0,0,0,0.75);
+    padding: 35px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.stTextArea textarea {
+    background: #ffffff !important;
+    color: #333 !important;
+    border-radius: 12px !important;
+}
+
+.stButton > button {
+    background: linear-gradient(135deg, #ff758c, #ff7eb3);
+    color: white !important;
+    border-radius: 25px !important;
+    width: 100%;
+    font-weight: bold;
+    border: none;
+    padding: 10px;
+}
+
+.emotion-badge {
+    padding: 10px 25px;
+    border-radius: 30px;
+    display: inline-block;
+    margin-top: 15px;
+    font-weight: bold;
+    color: white;
+}
+
+.story-box {
+    background: #ffffff;
+    color: #333;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+    line-height: 1.6;
+    border-left: 6px solid #ff758c;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# --- 3. LOGIC SETTINGS ---
+EMOTION_UI_THEMES = {
+    "joy": {"bg": "#f0d060", "emoji": "✨"},
+    "sadness": {"bg": "#7ab3e0", "emoji": "💙"},
+    "fear": {"bg": "#b388e8", "emoji": "🌑"},
+    "anger": {"bg": "#e87070", "emoji": "🔥"},
+    "surprise": {"bg": "#42e695", "emoji": "😲"},
+    "neutral": {"bg": "#aaaaaa", "emoji": "🌫️"},
+}
+
+STYLE_MAP = {
+    "joy": "clear happy face, authentic smile, natural sunlight, candid photo, symmetrical, realistic skin",
+    "sadness": "clear face, quiet expression, soft window light, natural skin texture, sharp focus on eyes",
+    "fear": "clear focused face, wide eyes, sharp facial features, realistic human anatomy",
+    "anger": "sharp clear face, intense gaze, realistic skin, indoor lighting, candid photo",
+    "surprise": "clear shocked face, sharp focus, eyebrows raised, authentic human reaction",
+    "neutral": "clear normal face, unposed headshot, natural daylight, ordinary person, sharp details"
+}
+
+# --- 4. BACKEND FUNCTIONS ---
+@st.cache_resource
+def load_emotion_model():
+    return pipeline(
+        "text-classification",
+        model="j-hartmann/emotion-english-distilroberta-base",
+        top_k=1,
+        device=0 if torch.cuda.is_available() else -1
+    )
+
+def generate_visual_story(prompt, emotion):
+    # Text Generation via Pollinations OpenAI model
+    instruction = (
+        f"Write a short, meaningful story paragraph. "
+        f"Continue this prompt: '{prompt}'. Mood: {emotion}. "
+        f"Use simple words and stay grounded in daily life."
+    )
+    text_url = f"https://text.pollinations.ai/{quote(instruction)}?model=openai"
     try:
-        # Temporarily remove HF_TOKEN to avoid 401 errors for public models
-        old_token = os.environ.pop("HF_TOKEN", None)
-        emo_pipe = pipeline("text-classification", model=model_name, top_k=None)
-        if old_token:
-            os.environ["HF_TOKEN"] = old_token
-    except Exception as e:
-        st.error(f"Failed to load emotion model: {e}")
-        raise
-    return emo_pipe
+        story = requests.get(text_url, timeout=10).text.strip()
+    except:
+        story = f"{prompt}. It was a moment that defined the day, carrying the weight of {emotion}."
+    
+    # Image Generation via Pollinations Flux model
+    tech_style = STYLE_MAP.get(emotion, "realistic photography, clear face")
+    image_prompt = (
+        f"High-quality realistic photo of a human: {prompt}. "
+        f"{tech_style}, natural lighting, no distortions, 8k."
+    )
+    image_url = f"https://image.pollinations.ai/prompt/{quote(image_prompt)}?width=1024&height=768&model=flux&nologo=true"
+    
+    return story, image_url
 
+# --- 5. MAIN UI ---
+st.markdown("<div class='main-title'>🎭 Emotion AI Story Engine ✨</div>", unsafe_allow_html=True)
 
+clf = load_emotion_model()
 
-@st.cache_resource(show_spinner=False)
-def load_textgen_pipeline():
-    """Load lightweight text generation model."""
-    gen_model = "distilgpt2"
-    try:
-        gen_pipe = pipeline("text-generation", model=gen_model, device_map="auto")
-    except Exception:
-        gen_pipe = pipeline("text-generation", model=gen_model)
-    return gen_pipe
+user_prompt = st.text_area("", placeholder="Type a feeling or a moment (e.g., Walking home in the rain...)")
 
+if st.button("✨ Generate Experience"):
+    if not user_prompt.strip():
+        st.warning("Please enter a prompt first!")
+        st.stop()
 
-@st.cache_resource(show_spinner=False)
-def load_sd_pipeline(hf_token: str = None):
-    """Load Stable Diffusion pipeline (requires token)."""
-    if not DIFFUSERS_AVAILABLE:
-        return None
-    model_id = "runwayml/stable-diffusion-v1-5"
-    try:
-        if torch.cuda.is_available():
-            pipe = StableDiffusionPipeline.from_pretrained(
-                model_id,
-                use_safetensors=True,
-                torch_dtype=torch.float16,
-                revision="fp16",
-                use_auth_token=hf_token,
-            ).to("cuda")
-        else:
-            pipe = StableDiffusionPipeline.from_pretrained(model_id, use_auth_token=hf_token)
-    except Exception as e:
-        st.warning(f"Stable Diffusion pipeline failed to load: {e}")
-        return None
-    return pipe
+    with st.spinner("Analyzing emotions and crafting your world..."):
+        # Detect Emotion
+        raw_emotion = clf(user_prompt)[0][0]["label"].lower()
+        
+        # Get Story and Image
+        story_text, img_url = generate_visual_story(user_prompt, raw_emotion)
+        
+        # UI Styling
+        theme = EMOTION_UI_THEMES.get(raw_emotion, EMOTION_UI_THEMES["neutral"])
 
-
-# -----------------------------
-# Core Functions
-# -----------------------------
-def detect_emotion(emo_pipe, text: str) -> List[Dict]:
-    results = emo_pipe(text)
-    if isinstance(results, list) and len(results) and isinstance(results[0], list):
-        return sorted(results[0], key=lambda x: x["score"], reverse=True)
-    return results
-
-
-def build_continuation_prompt(original_text: str, top_emotion: str) -> str:
-    return textwrap.dedent(f"""
-    Continue the following story in the same voice and maintain the emotional tone of '{top_emotion}'.
-
-    Story start:
-    {original_text}
-
-    Continue:
-    """)
-
-
-def generate_continuation(gen_pipe, prompt: str, max_new_tokens: int = 120) -> str:
-    try:
-        out = gen_pipe(
-            prompt,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.9,
-            top_k=50,
-            top_p=0.95,
+        # Display Emotion Badge
+        st.markdown(
+            f"<div class='emotion-badge' style='background:{theme['bg']}'>"
+            f"{theme['emoji']} {raw_emotion.upper()}</div>",
+            unsafe_allow_html=True
         )
-        return out[0]["generated_text"][len(prompt):].strip()
-    except TypeError:
-        out = gen_pipe(prompt, max_length=len(prompt.split()) + max_new_tokens, do_sample=True, temperature=0.9)
-        return out[0]["generated_text"][len(prompt):].strip()
 
+        # Display Story
+        st.markdown(f"<div class='story-box'><b>The Scene:</b><br>{story_text}</div>", unsafe_allow_html=True)
 
-def generate_image(sd_pipe, prompt: str, guidance_scale: float = 7.5, num_inference_steps: int = 30):
-    if sd_pipe is None:
-        raise RuntimeError("Stable Diffusion pipeline not available")
-    with torch.autocast("cuda") if torch.cuda.is_available() else nullcontext():
-        image = sd_pipe(prompt, guidance_scale=guidance_scale, num_inference_steps=num_inference_steps).images[0]
-    return image
+        # Display Image
+        st.image(img_url, use_container_width=True)
+        
+        st.success("Scene Generated Successfully!")
 
+# --- 6. HISTORY (Optional) ---
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# -----------------------------
-# Streamlit UI
-# -----------------------------
-st.set_page_config(page_title="Emotion-Aware Story Assistant", layout="wide")
-st.title("🎭 Emotion-Aware AI Writing Assistant — Dynamic Storytelling")
-
-st.sidebar.header("Settings")
-show_images = st.sidebar.checkbox("Enable image generation (requires HF token)", value=False)
-
-# ✅ Only use HF_TOKEN for Stable Diffusion, not text models
-hf_token = HF_TOKEN if show_images else None
-
-if show_images and not hf_token:
-    st.sidebar.warning("Please set your valid Hugging Face token to enable image generation.")
-
-with st.spinner("Loading models..."):
-    emo_pipe = load_emotion_pipeline()
-    gen_pipe = load_textgen_pipeline()
-    sd_pipe = load_sd_pipeline(hf_token) if show_images else None
-
-st.sidebar.markdown("---")
-max_new_tokens = st.sidebar.slider("Max new tokens for continuation", 50, 400, 140)
-
-st.subheader("Enter your story or scene snippet")
-user_text = st.text_area("Story input", height=200)
-
-col1, col2 = st.columns([1, 1])
-with col1:
-    if st.button("Analyze Emotion & Generate Continuation"):
-        if not user_text.strip():
-            st.warning("Please type a short story fragment first.")
-        else:
-            with st.spinner("Detecting emotion..."):
-                emo_results = detect_emotion(emo_pipe, user_text)
-                top = emo_results[0]
-                st.markdown(f"**Top emotion:** {top['label']} — score: {top['score']:.2f}")
-                st.write(emo_results)
-
-            with st.spinner("Generating continuation..."):
-                prompt = build_continuation_prompt(user_text, top['label'])
-                continuation = generate_continuation(gen_pipe, prompt, max_new_tokens=max_new_tokens)
-                st.markdown("### Story Continuation")
-                st.write(continuation)
-
-            if show_images and sd_pipe is not None:
-                img_prompt = (
-                    f"Cinematic, highly detailed illustration reflecting the emotion '{top['label']}' "
-                    f"for this scene: {user_text} Continue: {continuation} --ar 16:9"
-                )
-                st.markdown("### Generated Image")
-                try:
-                    with st.spinner("Generating image..."):
-                        image = generate_image(sd_pipe, img_prompt)
-                        st.image(image, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Image generation failed: {e}")
-
-with col2:
-    st.markdown("### Quick Prompts & Controls")
-    st.markdown("- Tip: keep input short (1–5 paragraphs) for best results.")
+# If you want to see previous results, they appear here
+if st.session_state.history:
     st.markdown("---")
-    st.markdown("### Example Inputs")
-    if st.button("Load example: melancholic swing"):
-        st.session_state['example'] = (
-            "She stood under the oak, watching the empty swing sway in the autumn breeze, "
-            "thinking of laughter that would never return."
-        )
-        st.experimental_rerun()
-    if 'example' in st.session_state:
-        st.text_area("Story input", value=st.session_state['example'], key='story_example')
-
-st.markdown("---")
-st.markdown("Built with ❤️ — Customize models & UI freely!")
-
+    st.subheader("Previous Explorations")
+    for h in reversed(st.session_state.history):
+        st.text(f"{h['mood'].upper()}: {h['input'][:50]}...")
