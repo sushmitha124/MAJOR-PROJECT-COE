@@ -1,11 +1,5 @@
 streamlit
-torch
 transformers
-Pillow
+torch --index-url https://download.pytorch.org/whl/cpu
 requests
-gradio
-google-generativeai
-torchvision
-flask
-openai
-gunicorn
+Pillow
